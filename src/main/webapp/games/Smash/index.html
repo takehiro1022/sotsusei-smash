@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（完全版・コメント機能付き）</title>
+<title>スマブラ風マルチ対戦（サイドコメント版）</title>
 <style>
   body {
     margin: 0;
@@ -14,7 +14,8 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    padding: 12px 0;
+    padding: 12px 10px;
+    box-sizing: border-box;
   }
   #name-gate-overlay {
     position: fixed;
@@ -84,7 +85,7 @@
     font-weight: bold;
     color: #fbbf24;
     text-align: center;
-    max-width: 1060px;
+    max-width: 1320px;
   }
   .panel-row {
     display: flex;
@@ -97,7 +98,7 @@
     border-radius: 8px;
     padding: 8px 12px;
     margin-bottom: 8px;
-    max-width: 1080px;
+    max-width: 1320px;
     font-size: 13px;
   }
   .panel-row.hidden { display: none; }
@@ -121,7 +122,6 @@
   #inline-name-input { width: 130px; }
   #stage-select { min-width: 170px; }
   #char-select-dropdown { min-width: 210px; }
-  #chat-input { width: 340px; max-width: 65vw; }
   .btn {
     background: #2563eb;
     color: #fff;
@@ -198,11 +198,87 @@
     color: #4ade80;
     font-weight: bold;
   }
+  #stage-chat-layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: stretch;
+    justify-content: center;
+    width: 100%;
+    max-width: 1340px;
+  }
   canvas {
     background: #273244;
     border: 2px solid #64748b;
     border-radius: 6px;
-    max-width: 98vw;
+    max-width: 100%;
+    height: auto;
+  }
+  #chat-sidebar {
+    width: 280px;
+    min-height: 520px;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  #chat-sidebar.hidden { display: none; }
+  #chat-sidebar-header {
+    font-size: 14px;
+    font-weight: bold;
+    color: #38bdf8;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #334155;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #chat-sidebar-sub {
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: normal;
+  }
+  #chat-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 410px;
+  }
+  .chat-item {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .chat-sender {
+    font-weight: bold;
+    margin-right: 4px;
+  }
+  .chat-empty {
+    color: #64748b;
+    font-size: 12px;
+    text-align: center;
+    margin-top: 24px;
+  }
+  #chat-form-row {
+    display: flex;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid #334155;
+  }
+  #chat-input {
+    flex: 1;
+    min-width: 0;
   }
   #controls-guide {
     margin-top: 8px;
@@ -264,12 +340,24 @@
   <span id="ready-summary">完了：0/0人</span>
 </div>
 
-<canvas id="game" width="1080" height="520"></canvas>
+<div id="stage-chat-layout">
+  <canvas id="game" width="1080" height="520"></canvas>
 
-<div class="panel-row hidden" id="chat-row">
-  <span>💬</span>
-  <input id="chat-input" type="text" maxlength="80" placeholder="試合外にコメントを送信（Enterで投稿）">
-  <button id="chat-send-btn" class="btn secondary" type="button">送信</button>
+  <aside id="chat-sidebar" class="hidden" aria-label="試合外コメント欄">
+    <div>
+      <div id="chat-sidebar-header">
+        <span>💬 コメント</span>
+        <span id="chat-sidebar-sub">試合外のみ</span>
+      </div>
+      <div id="chat-log">
+        <div class="chat-empty">まだコメントはありません</div>
+      </div>
+    </div>
+    <div id="chat-form-row">
+      <input id="chat-input" type="text" maxlength="80" placeholder="コメントを入力（Enter）">
+      <button id="chat-send-btn" class="btn secondary" type="button">送信</button>
+    </div>
+  </aside>
 </div>
 
 <div id="controls-guide">
@@ -293,8 +381,7 @@ const RESULT_SECONDS = 3;
 const STATE_SEND_INTERVAL_MS = 33;
 const ENHANCE_MAX_LEVEL = 5;
 const ENHANCE_COOLDOWN_MS = 10000;
-const CHAT_LIFETIME_MS = 9000;
-const CHAT_MAX_ITEMS = 6;
+const CHAT_MAX_ITEMS = 40;
 let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
 
 const COLOR_PALETTE = [
@@ -553,7 +640,8 @@ const charDescInline = document.getElementById("char-desc-inline");
 const readyToggleBtn = document.getElementById("ready-toggle-btn");
 const backToMapBtn = document.getElementById("back-to-map-btn");
 const readySummaryEl = document.getElementById("ready-summary");
-const chatRow = document.getElementById("chat-row");
+const chatSidebarEl = document.getElementById("chat-sidebar");
+const chatLogEl = document.getElementById("chat-log");
 const chatInputEl = document.getElementById("chat-input");
 const chatSendBtn = document.getElementById("chat-send-btn");
 
@@ -606,7 +694,6 @@ function getRoomCapacity() {
   return isPublicLobbyRoom() ? MAX_LOBBY_PLAYERS : MAX_BATTLE_PLAYERS;
 }
 
-// ループフェーズ: "map_select" | "char_select" | "countdown" | "playing" | "gameover"
 let ws = null;
 let phase = "map_select";
 let gameMode = "ffa";
@@ -642,16 +729,50 @@ function canSendOrShowChat() {
   return hasEnteredLobby && phase !== "playing" && !isRoomFullBlocked && !entryBlockedByHost;
 }
 
+function renderChatLogDOM() {
+  chatLogEl.innerHTML = "";
+  if (chatMessages.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.textContent = "まだコメントはありません";
+    chatLogEl.appendChild(empty);
+    return;
+  }
+
+  chatMessages.forEach(m => {
+    const item = document.createElement("div");
+    item.className = "chat-item";
+
+    const senderSpan = document.createElement("span");
+    senderSpan.className = "chat-sender";
+    senderSpan.style.color = m.color || "#38bdf8";
+    senderSpan.textContent = `${m.sender}:`;
+
+    const textSpan = document.createElement("span");
+    textSpan.textContent = ` ${m.text}`;
+
+    item.appendChild(senderSpan);
+    item.appendChild(textSpan);
+    chatLogEl.appendChild(item);
+  });
+  chatLogEl.scrollTop = chatLogEl.scrollHeight;
+}
+
+function clearChatMessages() {
+  chatMessages = [];
+  renderChatLogDOM();
+}
+
 function updateChatVisibility() {
   const allowed = canSendOrShowChat();
-  chatRow.classList.toggle("hidden", !allowed);
+  chatSidebarEl.classList.toggle("hidden", !allowed);
   chatInputEl.disabled = !allowed;
   chatSendBtn.disabled = !allowed;
   if (!allowed && document.activeElement === chatInputEl) {
     chatInputEl.blur();
   }
   if (phase === "playing") {
-    chatMessages = [];
+    clearChatMessages();
   }
 }
 
@@ -663,12 +784,12 @@ function pushChatMessage(msg) {
   chatMessages.push({
     sender: sanitizePlayerName(msg.sender, roleNum),
     color: sanitizeColorHex(msg.color, roleNum || 1),
-    text,
-    expiresAt: performance.now() + CHAT_LIFETIME_MS
+    text
   });
   if (chatMessages.length > CHAT_MAX_ITEMS) {
     chatMessages = chatMessages.slice(-CHAT_MAX_ITEMS);
   }
+  renderChatLogDOM();
 }
 
 function sendChatMessage() {
@@ -1334,7 +1455,7 @@ function startBattlePhase() {
   if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   phase = "playing";
-  chatMessages = [];
+  clearChatMessages();
   matchStartedAt = performance.now();
   winnerInfo = null;
   gameOverSent = false;
@@ -1758,7 +1879,7 @@ function attachSocketHandlers(socket) {
       const joiningMidMatch = (!isPublicLobbyRoom() && (data.phase === "playing" || phase === "playing"));
       if (joiningMidMatch) {
         phase = "playing";
-        chatMessages = [];
+        clearChatMessages();
         isSpectator = true;
         spectatorRoles.add(myRole);
       } else {
@@ -1846,7 +1967,7 @@ function attachSocketHandlers(socket) {
       } else if (data.phase === "playing") {
         clearTimers();
         phase = "playing";
-        chatMessages = [];
+        clearChatMessages();
         if (myRole !== 0 && spectatorRoles.has(myRole)) isSpectator = true;
         syncActivePlayersFromRoles();
       }
@@ -2676,35 +2797,6 @@ function renderStocks(stocks, x, y, color) {
   }
 }
 
-function renderChatOverlay(now) {
-  if (phase === "playing") return;
-  chatMessages = chatMessages.filter(m => m.expiresAt > now);
-  if (chatMessages.length === 0) return;
-
-  const startX = 16;
-  let y = canvas.height - 18;
-  ctx.save();
-  ctx.font = "bold 14px sans-serif";
-  ctx.textAlign = "left";
-
-  for (let i = chatMessages.length - 1; i >= 0; i--) {
-    const m = chatMessages[i];
-    const remRatio = Math.max(0.2, Math.min(1, (m.expiresAt - now) / 1500));
-    const line = `💬 ${m.sender}: ${m.text}`;
-    const boxW = Math.min(canvas.width - 32, ctx.measureText(line).width + 20);
-
-    ctx.globalAlpha = remRatio * 0.86;
-    ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
-    ctx.fillRect(startX, y - 16, boxW, 22);
-
-    ctx.globalAlpha = remRatio;
-    ctx.fillStyle = m.color || "#f8fafc";
-    ctx.fillText(line, startX + 10, y, boxW - 20);
-    y -= 26;
-  }
-  ctx.restore();
-}
-
 function loop(now) {
   const dtScale = Math.min((now - lastFrameTime) / (1000 / 60), 2.5);
   lastFrameTime = now;
@@ -3032,12 +3124,12 @@ function loop(now) {
     }
   }
 
-  renderChatOverlay(now);
   requestAnimationFrame(loop);
 }
 
 initDropdownOptions();
 initColorPaletteDOM();
+renderChatLogDOM();
 updateLoopUI();
 updatePassphraseUI();
 updateRoomStatusBox();
