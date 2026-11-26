@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（マップ8種・地形遮断＆高精度判定版）</title>
+<title>スマブラ風マルチ対戦（マップ8種・復活5秒無敵＆会心ガード貫通版）</title>
 <style>
   body {
     margin: 0;
@@ -386,9 +386,10 @@ const MAX_LOBBY_PLAYERS = 30;
 const MAX_STOCK = 5;
 const MAX_SHIELD = 160;
 const MAX_MP = 100;
-const HAMMER_MAX_CHARGE = 80;
+const HAMMER_MAX_CHARGE = 120;
 const GUARDIAN_INVINCIBLE_HITS = 5;
 const GUARDIAN_INVINCIBLE_FRAMES = 180;
+const RESPAWN_INVINCIBLE_FRAMES = 300; // 復活時5秒（60fps * 5 = 300フレーム）
 const SUMMON_COOLDOWN_MS = 30000;
 const SUMMON_CLONE_MAX_PERCENT = 100;
 const SUMMON_CANDIDATES = ["fighter", "guardian", "mage"];
@@ -684,7 +685,7 @@ const CHAR_SPECS = {
   hammer: {
     name: "🔨 ハンマータイプ",
     shortName: "ハンマー",
-    desc: "K蓄積(80MAX)で2.5倍会心・当たるまで持続",
+    desc: "K蓄積(120で会心)＆会心はガード貫通2.5倍",
     color: "#fb923c",
     moveAcc: 0.80,
     friction: 0.83,
@@ -827,7 +828,6 @@ let burnDebuffs = [];
 let clones = {};
 let chatMessages = [];
 
-// --- 高精度当たり判定＆地形遮断ユーティリティ ---
 function rectsOverlap(a, b) {
   return (
     a.x < b.x + b.w &&
@@ -837,7 +837,6 @@ function rectsOverlap(a, b) {
   );
 }
 
-// 線分 (x1, y1)-(x2, y2) が矩形 (rx, ry, rw, rh) に交差するか（スラブ法）
 function segmentIntersectsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
   let t0 = 0;
   let t1 = 1;
@@ -875,7 +874,6 @@ function getAllStageObstacles() {
   return [...(st.solids || []), ...(st.platforms || [])];
 }
 
-// 攻撃の始点からターゲット中心へ伸びる線分が、床・壁・台に遮られているか
 function isBlockedByStageSegment(x1, y1, x2, y2) {
   const obstacles = getAllStageObstacles();
   for (let i = 0; i < obstacles.length; i++) {
@@ -887,7 +885,6 @@ function isBlockedByStageSegment(x1, y1, x2, y2) {
   return false;
 }
 
-// 近接ヒットボックスがターゲット矩形に当たるか（矩形重なり＋線分検証）
 function doesMeleeHitEntity(hb, originX, originY, target) {
   if (!rectsOverlap(hb, target)) return false;
   const tx = target.x + target.w * 0.5;
@@ -895,7 +892,6 @@ function doesMeleeHitEntity(hb, originX, originY, target) {
   return !isBlockedByStageSegment(originX, originY, tx, ty);
 }
 
-// レーザー・精霊ビームを床・壁・台でクリップ（描画・判定の両方に使用）
 function getClippedBeamRect(bm) {
   const obstacles = getAllStageObstacles();
   const bx = bm.x;
@@ -1900,16 +1896,20 @@ function checkMatchEndCondition() {
   }
 }
 
-function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62) {
+function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62, pierceGuard = false) {
   if (isSpectator || (me.invincibleTimer || 0) > 0) return;
 
-  if (me.shielding && !me.burnedOut) {
+  if (me.shielding && !me.burnedOut && !pierceGuard) {
     me.shieldHp -= dmg * 2.2;
     me.percent += Math.floor(dmg * 0.15);
     me.vx = dir * 2.5;
     if (me.shieldHp <= 0) triggerBurnout(me);
     sendMyState(me, true);
     return;
+  }
+
+  if (pierceGuard && me.shielding) {
+    me.shielding = false;
   }
 
   me.percent += dmg;
@@ -2298,8 +2298,10 @@ function attachSocketHandlers(socket) {
         changed = true;
       }
       if (me.charKey === "hammer" && data.wasSmash) {
-        if (me.critActive || me.critReady) {
-          me.hammerCharge = 0; me.critReady = false; me.critActive = false;
+        if (me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE) {
+          me.hammerCharge = 0;
+          me.critReady = false;
+          me.critActive = false;
         } else {
           me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + (data.wasFullCharge ? 30 : 10));
           if (me.hammerCharge >= HAMMER_MAX_CHARGE) me.critReady = true;
@@ -2316,6 +2318,7 @@ function attachSocketHandlers(socket) {
       const me = players[myRole];
       if (!me || me.stocks <= 0) return;
       const spec = CHAR_SPECS[me.charKey] || CHAR_SPECS.fighter;
+      const pierceGuard = !!data.pierceGuard;
 
       if (socket.readyState === WebSocket.OPEN && !data.fromClone) {
         socket.send(JSON.stringify({
@@ -2331,30 +2334,32 @@ function attachSocketHandlers(socket) {
       if ((me.invincibleTimer || 0) > 0) return;
 
       if (data.effect === "burn") {
-        if (me.shielding && !me.burnedOut) {
+        if (me.shielding && !me.burnedOut && !pierceGuard) {
           me.shieldHp -= (data.dmg || 5) * 2.0;
           if (me.shieldHp <= 0) triggerBurnout(me);
           sendMyState(me, true);
           return;
         }
+        if (pierceGuard) me.shielding = false;
         burnDebuffs.push({ targetRole: myRole, attackerRole: data.attackerRole, ticksLeft: 5, tickTimer: 0, dmgPerTick: 5, dir: data.dir || 1 });
         return;
       }
 
       if (data.effect === "freeze") {
-        if (me.shielding && !me.burnedOut) {
+        if (me.shielding && !me.burnedOut && !pierceGuard) {
           me.shieldHp -= 15;
           me.vx = (data.dir || 1) * 2.5;
           if (me.shieldHp <= 0) triggerBurnout(me);
           sendMyState(me, true);
           return;
         }
+        if (pierceGuard) me.shielding = false;
         me.frozen = true; me.stun = Math.max(me.stun, 60); me.vx = 0; me.shielding = false; me.smashCharging = false;
         sendMyState(me, true);
         return;
       }
 
-      applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62);
+      applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62, pierceGuard);
     }
   };
 }
@@ -2519,7 +2524,9 @@ function triggerAttack(useSmash, chargeRatio = 0) {
     me.atkTimer = 16;
     me.cooldown = spec.smashCooldown;
     me.smashChargeRatio = chargeRatio;
-    me.critActive = (me.charKey === "hammer") && !!(me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
+    const hasCritCharge = (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE;
+    if (hasCritCharge) me.critReady = true;
+    me.critActive = (me.charKey === "hammer") && !!(me.critReady || hasCritCharge);
   } else {
     me.atkType = "light";
     me.atkTimer = me.charKey === "fighter" ? 7 : 10;
@@ -2589,7 +2596,7 @@ window.addEventListener("keyup", e => {
 function getMeleeHitbox(p) {
   if (p.atkTimer <= 0 || !p.atkType || (p.charKey === "mage" && p.atkType === "light")) return null;
   const isSmash = p.atkType === "smash";
-  const isHammerCrit = p.charKey === "hammer" && isSmash && p.critActive;
+  const isHammerCrit = p.charKey === "hammer" && isSmash && !!(p.critActive || p.critReady || (p.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
   let w = isSmash ? 56 : 40;
   let h = isSmash ? 40 : 26;
   if (p.charKey === "hammer" && isSmash) {
@@ -2829,7 +2836,6 @@ function updateBeams(dtScale) {
   }
 }
 
-// マダンテ（ringEffects）は地形を貫通する
 function updateRings(dtScale) {
   for (let i = ringEffects.length - 1; i >= 0; i--) {
     const rg = ringEffects[i];
@@ -2880,6 +2886,14 @@ function updateMyPlayer(dtScale) {
 
   if ((me.invincibleTimer || 0) > 0) me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
   if (me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp ?? MAX_MP) + (1 / 60) * dtScale);
+
+  // ハンマー：蓄積が120以上になったら自動で会心状態にする
+  if (me.charKey === "hammer") {
+    me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, me.hammerCharge || 0);
+    if (me.hammerCharge >= HAMMER_MAX_CHARGE) {
+      me.critReady = true;
+    }
+  }
 
   if (down["KeyJ"] && !me.burnedOut && me.stun <= 0 && me.atkTimer <= 0 && !me.smashCharging) {
     me.shielding = true;
@@ -2939,16 +2953,27 @@ function updateMyPlayer(dtScale) {
           const isFullCharge = ratio >= 0.99;
           let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
           let finalKb = 14.5 * (1 + ratio * 0.45);
+          let pierceGuard = false;
+
           if (me.charKey === "hammer") {
-            if (me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE) {
-              finalDmg = Math.round(finalDmg * 2.5); finalKb *= 1.45;
-              me.hammerCharge = 0; me.critReady = false; me.critActive = false;
+            const isCrit = !!(me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
+            if (isCrit) {
+              finalDmg = Math.round(finalDmg * 2.5);
+              finalKb *= 1.45;
+              pierceGuard = true; // 会心攻撃はガード無効（貫通）
+              me.hammerCharge = 0;
+              me.critReady = false;
+              me.critActive = false;
             } else {
               me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + (isFullCharge ? 30 : 10));
               if (me.hammerCharge >= HAMMER_MAX_CHARGE) me.critReady = true;
             }
           }
-          sendHitToTarget(target.role, finalDmg, finalKb, me.facing, null, 0.62, { wasSmash: true, wasFullCharge: isFullCharge });
+          sendHitToTarget(target.role, finalDmg, finalKb, me.facing, null, 0.62, {
+            wasSmash: true,
+            wasFullCharge: isFullCharge,
+            pierceGuard
+          });
           me.smashChargeRatio = 0;
           sendMyState(me, true);
         } else {
@@ -2968,7 +2993,22 @@ function updateMyPlayer(dtScale) {
     if (!me.hasHit) {
       if (hb.isSmash) {
         const ratio = me.smashChargeRatio || 0;
-        if (checkHitEnemyClonesByBox(hb, Math.floor(spec.smashDmg * (1 + ratio * 0.50)), 14.5 * (1 + ratio * 0.45), me.facing, null, 0.62, null, originX, originY, false)) {
+        let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
+        let finalKb = 14.5 * (1 + ratio * 0.45);
+        if (me.charKey === "hammer") {
+          const isCrit = !!(me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
+          if (isCrit) {
+            finalDmg = Math.round(finalDmg * 2.5);
+            finalKb *= 1.45;
+            me.hammerCharge = 0;
+            me.critReady = false;
+            me.critActive = false;
+          } else {
+            me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + (ratio >= 0.99 ? 30 : 10));
+            if (me.hammerCharge >= HAMMER_MAX_CHARGE) me.critReady = true;
+          }
+        }
+        if (checkHitEnemyClonesByBox(hb, finalDmg, finalKb, me.facing, null, 0.62, null, originX, originY, false)) {
           me.hasHit = true; me.smashChargeRatio = 0; sendMyState(me, true);
         }
       } else {
@@ -2983,13 +3023,16 @@ function updateMyPlayer(dtScale) {
     me.percent = 0; me.vx = 0; me.vy = 0; me.stun = 0; me.frozen = false;
     me.jumps = maxJumps; me.shielding = false; me.burnedOut = false; me.shieldHp = MAX_SHIELD;
     me.smashCharging = false; me.hasHit = false; me.enhanceLevel = 0; me.enhanceCooldownUntil = 0;
-    me.hammerCharge = 0; me.critReady = false; me.critActive = false; me.guardianHits = 0; me.invincibleTimer = 0;
+    me.hammerCharge = 0; me.critReady = false; me.critActive = false; me.guardianHits = 0;
     if (clones[myRole]) { delete clones[myRole]; me.hasClone = false; sendCloneSync(null); }
     me.mp = MAX_MP;
     burnDebuffs = burnDebuffs.filter(b => b.targetRole !== myRole);
     if (me.stocks > 0) {
       const sp = getSpawnPoint(myRole);
       me.x = sp.x; me.y = sp.y; me.facing = sp.facing;
+      me.invincibleTimer = RESPAWN_INVINCIBLE_FRAMES; // 復活時5秒無敵
+    } else {
+      me.invincibleTimer = 0;
     }
     sendMyState(me, true);
     checkMatchEndCondition();
@@ -3145,14 +3188,14 @@ function loop(now) {
     }
 
     if (p.charKey === "hammer") {
-      const ch = p.hammerCharge || 0;
+      const ch = Math.min(HAMMER_MAX_CHARGE, p.hammerCharge || 0);
       const isCrit = !!(p.critReady || p.critActive || ch >= HAMMER_MAX_CHARGE);
       if (isCrit) {
         ctx.strokeStyle = "#fde047"; ctx.lineWidth = 3;
         ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
       }
       ctx.font = "bold 11px sans-serif"; ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
-      ctx.fillText(isCrit ? `⚡会心MAX (${ch}/${HAMMER_MAX_CHARGE})` : `🔨蓄積 ${ch}/${HAMMER_MAX_CHARGE}`, p.x - 28, p.y - 22);
+      ctx.fillText(isCrit ? `⚡会心貫通MAX (${ch}/${HAMMER_MAX_CHARGE})` : `🔨蓄積 ${ch}/${HAMMER_MAX_CHARGE}`, p.x - 34, p.y - 22);
     }
 
     if (p.smashCharging) {
@@ -3188,7 +3231,7 @@ function loop(now) {
 
     const hb = getMeleeHitbox(p);
     if (hb) {
-      const isCritHit = p.charKey === "hammer" && hb.isSmash && p.critActive;
+      const isCritHit = p.charKey === "hammer" && hb.isSmash && !!(p.critActive || p.critReady || (p.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
       ctx.fillStyle = isCritHit ? "rgba(253, 224, 71, 0.85)" : (hb.isSmash ? "rgba(251, 146, 60, 0.72)" : "rgba(254, 240, 138, 0.65)");
       ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
       if (isCritHit) { ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 3; ctx.strokeRect(hb.x, hb.y, hb.w, hb.h); }
@@ -3217,7 +3260,6 @@ function loop(now) {
     ctx.restore();
   }
 
-  // マダンテ：地形貫通
   for (const rg of ringEffects) {
     const alpha = Math.max(0.1, rg.life / rg.maxLife);
     const curRadius = rg.maxRadius * Math.min(1, (1 - Math.max(0, rg.life / rg.maxLife)) * 1.35);
@@ -3359,10 +3401,10 @@ function loop(now) {
         ctx.fillText(`MP: ${Math.floor(p.mp ?? MAX_MP)}/${MAX_MP}`, pos.x + 115, pos.y + 24);
       }
       if (p.charKey === "hammer") {
-        const ch = p.hammerCharge || 0;
+        const ch = Math.min(HAMMER_MAX_CHARGE, p.hammerCharge || 0);
         const isCrit = !!(p.critReady || p.critActive || ch >= HAMMER_MAX_CHARGE);
         ctx.font = "bold 13px sans-serif"; ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
-        ctx.fillText(isCrit ? `会心MAX!` : `蓄積: ${ch}/80`, pos.x + 115, pos.y + 24);
+        ctx.fillText(isCrit ? `会心貫通MAX!` : `蓄積: ${ch}/${HAMMER_MAX_CHARGE}`, pos.x + 115, pos.y + 24);
       }
       if (p.charKey === "guardian") {
         ctx.font = "bold 13px sans-serif"; ctx.fillStyle = (p.invincibleTimer || 0) > 0 ? "#fde047" : "#7dd3fc";
