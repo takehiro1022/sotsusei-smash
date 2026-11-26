@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ニュートン卿の真理探究クイズ 〜万有引力と100の雑学〜</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;900&family=Noto+Serif+JP:wght@600;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- 宇宙星空背景 -->
+  <div class="cosmos-bg" id="cosmos-bg"></div>
+
+  <!-- 破砕パーティクル描画用フルスクリーンCanvas -->
+  <canvas id="break-canvas"></canvas>
+
+  <!-- ホームへ戻るクイックボタン（左上固定：クイズ中等に表示） -->
+  <button class="home-btn" id="btn-home" title="タイトル（ホーム）へ戻る" style="display: none;">
+    🏠 ホーム
+  </button>
+
+  <!-- 音声トグルボタン -->
+  <button class="sound-toggle-btn" id="sound-btn" title="音声切り替え">
+    🔊 音声: ON
+  </button>
+
+  <div id="app">
+
+    <!-- 巨大アイザック・ニュートン卿 ステージ -->
+    <div class="newton-stage">
+      <!-- ニュートンのセリフ吹き出し -->
+      <div class="newton-dialogue" id="newton-dialogue">
+        万有引力の理を超え、授かりし翼とともに100の真理を解き明かしてみせよ！
+      </div>
+
+      <!-- 巨大ニュートン SVGイラスト -->
+      <svg id="newton-svg-elem" class="newton-figure" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="wigGrad" cx="50%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="60%" stop-color="#cbd5e1"/>
+            <stop offset="100%" stop-color="#64748b"/>
+          </radialGradient>
+          <linearGradient id="coatGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#1e1b4b"/>
+            <stop offset="50%" stop-color="#312e81"/>
+            <stop offset="100%" stop-color="#0f172a"/>
+          </linearGradient>
+          <linearGradient id="appleGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#ff6b6b"/>
+            <stop offset="60%" stop-color="#e63946"/>
+            <stop offset="100%" stop-color="#990000"/>
+          </linearGradient>
+          <!-- 神聖な翼のグラデーションとグロー -->
+          <linearGradient id="wingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="35%" stop-color="#fef9c3"/>
+            <stop offset="70%" stop-color="#f1f5f9"/>
+            <stop offset="100%" stop-color="#cbd5e1"/>
+          </linearGradient>
+          <linearGradient id="wingFeatherGold" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#fffbeb"/>
+            <stop offset="50%" stop-color="#fef08a"/>
+            <stop offset="100%" stop-color="#d4af37"/>
+          </linearGradient>
+          <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="4" result="blur"/>
+            <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+          </filter>
+          <filter id="wingGlow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="5" result="blur"/>
+            <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+          </filter>
+        </defs>
+
+        <!-- オーラ・光輪 -->
+        <circle cx="200" cy="180" r="140" fill="url(#wigGrad)" opacity="0.08" />
+
+        <!-- ★ ニュートンの背中に授けられた神聖なる翼 ★ -->
+        <!-- 左翼 (Left Wing) -->
+        <g class="newton-wing newton-wing-left" filter="url(#wingGlow)">
+          <!-- 外側最長風切羽 -->
+          <path d="M155 240 C110 200, 30 110, 40 45 C55 35, 95 90, 150 170 Z" fill="url(#wingGrad)" stroke="#d4af37" stroke-width="1.8"/>
+          <!-- 第2風切羽 -->
+          <path d="M150 245 C95 210, 20 145, 25 90 C40 80, 85 135, 142 195 Z" fill="url(#wingGrad)" stroke="#d4af37" stroke-width="1.6"/>
+          <!-- 第3風切羽 -->
+          <path d="M145 250 C85 225, 20 185, 20 135 C35 125, 80 170, 138 215 Z" fill="url(#wingFeatherGold)" stroke="#d4af37" stroke-width="1.5"/>
+          <!-- 第4風切羽（下段） -->
+          <path d="M140 255 C80 240, 28 220, 26 175 C42 165, 85 205, 135 235 Z" fill="url(#wingGrad)" stroke="#cbd5e1" stroke-width="1.3"/>
+          <!-- 第5風切羽（下端） -->
+          <path d="M140 260 C90 255, 45 250, 42 215 C58 205, 95 235, 138 250 Z" fill="url(#wingFeatherGold)" stroke="#cbd5e1" stroke-width="1.2"/>
+          <!-- 雨覆羽（中段のボリューム羽毛） -->
+          <path d="M155 235 C125 185, 75 140, 80 105 C98 98, 130 145, 155 190 Z" fill="#ffffff" stroke="#f59e0b" stroke-width="1.4"/>
+          <path d="M150 245 C115 205, 65 175, 68 145 C85 138, 120 180, 148 220 Z" fill="url(#wingGrad)" stroke="#f59e0b" stroke-width="1.2"/>
+          <!-- 翼の付け根のふんわり小翼羽 -->
+          <ellipse cx="140" cy="225" rx="20" ry="12" transform="rotate(-35 140 225)" fill="#ffffff" stroke="#d4af37" stroke-width="1.5"/>
+          <ellipse cx="125" cy="205" rx="16" ry="10" transform="rotate(-40 125 205)" fill="#fffbeb" stroke="#d4af37" stroke-width="1.2"/>
+          <!-- 羽軸のゴールド光彩ライン -->
+          <path d="M155 240 Q90 150 45 55" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.8"/>
+          <path d="M150 245 Q80 180 30 100" stroke="#fef08a" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+        </g>
+
+        <!-- 右翼 (Right Wing) -->
+        <g class="newton-wing newton-wing-right" filter="url(#wingGlow)">
+          <!-- 外側最長風切羽 -->
+          <path d="M245 240 C290 200, 370 110, 360 45 C345 35, 305 90, 250 170 Z" fill="url(#wingGrad)" stroke="#d4af37" stroke-width="1.8"/>
+          <!-- 第2風切羽 -->
+          <path d="M250 245 C305 210, 380 145, 375 90 C360 80, 315 135, 258 195 Z" fill="url(#wingGrad)" stroke="#d4af37" stroke-width="1.6"/>
+          <!-- 第3風切羽 -->
+          <path d="M255 250 C315 225, 380 185, 380 135 C365 125, 320 170, 262 215 Z" fill="url(#wingFeatherGold)" stroke="#d4af37" stroke-width="1.5"/>
+          <!-- 第4風切羽（下段） -->
+          <path d="M260 255 C320 240, 372 220, 374 175 C358 165, 315 205, 265 235 Z" fill="url(#wingGrad)" stroke="#cbd5e1" stroke-width="1.3"/>
+          <!-- 第5風切羽（下端） -->
+          <path d="M260 260 C310 255, 355 250, 358 215 C342 205, 305 235, 262 250 Z" fill="url(#wingFeatherGold)" stroke="#cbd5e1" stroke-width="1.2"/>
+          <!-- 雨覆羽（中段のボリューム羽毛） -->
+          <path d="M245 235 C275 185, 325 140, 320 105 C302 98, 270 145, 245 190 Z" fill="#ffffff" stroke="#f59e0b" stroke-width="1.4"/>
+          <path d="M250 245 C285 205, 335 175, 332 145 C315 138, 280 180, 252 220 Z" fill="url(#wingGrad)" stroke="#f59e0b" stroke-width="1.2"/>
+          <!-- 翼の付け根のふんわり小翼羽 -->
+          <ellipse cx="260" cy="225" rx="20" ry="12" transform="rotate(35 260 225)" fill="#ffffff" stroke="#d4af37" stroke-width="1.5"/>
+          <ellipse cx="275" cy="205" rx="16" ry="10" transform="rotate(40 275 205)" fill="#fffbeb" stroke="#d4af37" stroke-width="1.2"/>
+          <!-- 羽軸のゴールド光彩ライン -->
+          <path d="M245 240 Q310 150 355 55" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.8"/>
+          <path d="M250 245 Q320 180 370 100" stroke="#fef08a" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+        </g>
+
+        <!-- ニュートンの身体（クラシックなコート） -->
+        <path d="M90 390 C90 310, 140 260, 200 260 C260 260, 310 310, 310 390 Z" fill="url(#coatGrad)" stroke="#d4af37" stroke-width="3"/>
+        <!-- コートの襟 -->
+        <path d="M140 265 L175 350 L200 310 L225 350 L260 265" fill="#1e1b4b" stroke="#d4af37" stroke-width="2"/>
+        <circle cx="200" cy="330" r="4" fill="#ffd700"/>
+        <circle cx="200" cy="355" r="4" fill="#ffd700"/>
+
+        <!-- 首元のレース・クラバット（白いフリルネクタイ） -->
+        <path d="M175 240 C170 260, 180 290, 200 295 C220 290, 230 260, 225 240 Z" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+        <path d="M185 245 L200 280 L215 245" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+
+        <!-- 後ろ髪（ボリュームある白髪の巻き毛かつら） -->
+        <g fill="url(#wigGrad)" stroke="#475569" stroke-width="1.5">
+          <!-- 左側ロール -->
+          <circle cx="120" cy="150" r="32"/>
+          <circle cx="105" cy="190" r="30"/>
+          <circle cx="115" cy="230" r="28"/>
+          <circle cx="135" cy="265" r="26"/>
+          <!-- 右側ロール -->
+          <circle cx="280" cy="150" r="32"/>
+          <circle cx="295" cy="190" r="30"/>
+          <circle cx="285" cy="230" r="28"/>
+          <circle cx="265" cy="265" r="26"/>
+          <!-- 頭頂部 -->
+          <ellipse cx="200" cy="120" rx="75" ry="50"/>
+        </g>
+
+        <!-- 首 -->
+        <rect x="180" y="210" width="40" height="35" rx="5" fill="#fbd3b6"/>
+
+        <!-- 顔 -->
+        <path d="M150 145 C150 110, 250 110, 250 145 C250 200, 225 235, 200 235 C175 235, 150 200, 150 145 Z" fill="#fed7aa" stroke="#e0a96d" stroke-width="1.5"/>
+
+        <!-- 前髪の華麗なカール -->
+        <g fill="url(#wigGrad)" stroke="#64748b" stroke-width="1.5">
+          <circle cx="160" cy="115" r="22"/>
+          <circle cx="190" cy="105" r="24"/>
+          <circle cx="220" cy="110" r="23"/>
+          <circle cx="240" cy="120" r="20"/>
+        </g>
+
+        <!-- 眉毛（知的な太眉） -->
+        <path d="M165 145 Q180 140 190 146" stroke="#475569" stroke-width="3" stroke-linecap="round" fill="none"/>
+        <path d="M210 146 Q220 140 235 145" stroke="#475569" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+        <!-- 目（まばたきアニメーション） -->
+        <g id="newton-eyes">
+          <!-- 左目 -->
+          <ellipse cx="178" cy="158" rx="8" ry="5" fill="#ffffff" stroke="#334155" stroke-width="1"/>
+          <circle cx="178" cy="158" r="3.5" fill="#1e293b"/>
+          <circle cx="176" cy="156" r="1.2" fill="#ffffff"/>
+
+          <!-- 右目 -->
+          <ellipse cx="222" cy="158" rx="8" ry="5" fill="#ffffff" stroke="#334155" stroke-width="1"/>
+          <circle cx="222" cy="158" r="3.5" fill="#1e293b"/>
+          <circle cx="220" cy="156" r="1.2" fill="#ffffff"/>
+        </g>
+
+        <!-- 鼻（高く知的な鼻筋） -->
+        <path d="M200 152 L197 178 L206 181" stroke="#d97706" stroke-width="2" stroke-linecap="round" fill="none"/>
+
+        <!-- 口（引き締まった知的な笑み） -->
+        <path d="M188 202 Q200 208 212 202" stroke="#b45309" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+
+        <!-- ニュートンの手元にある黄金のリンゴ（アイコン） -->
+        <g transform="translate(260, 270) scale(0.65)" filter="url(#goldGlow)">
+          <path d="M40 20 C20 0, -10 30, 20 65 C35 80, 45 80, 60 65 C90 30, 60 0, 40 20 Z" fill="url(#appleGrad)" stroke="#ffd700" stroke-width="3"/>
+          <path d="M40 20 Q48 5 45 -5" stroke="#78350f" stroke-width="4" stroke-linecap="round" fill="none"/>
+          <ellipse cx="50" cy="2" rx="10" ry="5" transform="rotate(-25 50 2)" fill="#22c55e"/>
+        </g>
+      </svg>
+    </div>
+
+    <!-- 飛ぶリンゴ（正解時にニュートンから画面手前へ飛来して問題を割る！） -->
+    <div class="flying-apple" id="flying-apple">
+      <svg viewBox="0 0 100 100" width="100%" height="100%">
+        <path d="M50 25 C25 2, -10 35, 25 80 C42 98, 58 98, 75 80 C110 35, 75 2, 50 25 Z" fill="#e63946" stroke="#ffd700" stroke-width="3" filter="drop-shadow(0 0 8px #ff4d5e)"/>
+        <!-- 枝と葉 -->
+        <path d="M50 25 Q60 8 55 -5" stroke="#78350f" stroke-width="5" stroke-linecap="round" fill="none"/>
+        <ellipse cx="62" cy="5" rx="14" ry="7" transform="rotate(-25 62 5)" fill="#2ecc71" stroke="#27ae60" stroke-width="1.5"/>
+        <!-- ハイライト -->
+        <ellipse cx="34" cy="42" rx="10" ry="16" transform="rotate(-20 34 42)" fill="rgba(255, 255, 255, 0.45)"/>
+      </svg>
+    </div>
+
+    <!-- ==========================================
+         1. タイトル画面
+         ========================================== -->
+    <div class="screen active" id="screen-title">
+      <div class="title-badge">NEWTON'S TRIVIA QUEST</div>
+      <h1 class="main-title">ニュートン卿の<br>真理探究クイズ</h1>
+      <p class="sub-title">〜 万有引力と100の雑学 〜</p>
+
+      <!-- ストック状況ボックス -->
+      <div class="title-stock-box">
+        <div class="stock-label">現在残されている世界の真理ストック</div>
+        <div class="stock-count" id="title-stock-count">100 / 100 問</div>
+        <div class="stock-bar-container">
+          <div class="stock-bar" id="title-stock-bar"></div>
+        </div>
+      </div>
+
+      <!-- ラスト10問突入アラート（残り10問のとき表示） -->
+      <div class="last-stage-banner" id="last-stage-alert" style="display: none;">
+        ⚡ 警告: 残り10問！ これが最後の真理の扉だ！ ⚡
+      </div>
+
+      <!-- 操作ボタン -->
+      <div class="btn-group">
+        <button class="btn-primary" id="btn-start-game">
+          🍎 真理の探求を開始する（10問挑戦）
+        </button>
+        <button class="btn-secondary" id="btn-reset-stock">
+          🔄 真理ストックをリセット（全100問に戻す）
+        </button>
+      </div>
+
+      <div class="footer-text">
+        ※ 10問全問正解すると、解いた10問はストックから破棄され真理へと近づきます。<br>
+        ライフは2つ！2回間違えるとゲームオーバーとなります。
+      </div>
+    </div>
+
+    <!-- ==========================================
+         2. クイズ画面
+         ========================================== -->
+    <div class="screen" id="screen-quiz">
+      <div class="quiz-header">
+        <div class="quiz-progress-text" id="quiz-progress-text">第 1 問 / 10問</div>
+
+        <!-- ライフ表示（ライフ2つ制） -->
+        <div class="quiz-life-bar" id="quiz-life-bar" title="残りライフ">
+          <span class="life-label">LIFE:</span>
+          <span class="life-icon" id="life-1">🍎</span>
+          <span class="life-icon" id="life-2">🍎</span>
+        </div>
+
+        <div class="quiz-stock-status" id="quiz-stock-status">残りストック: 100問</div>
+      </div>
+
+      <div class="quiz-progress-bar">
+        <div class="quiz-progress-fill" id="quiz-progress-fill"></div>
+      </div>
+
+      <!-- 問題カード（正解時にリンゴで割られるターゲット） -->
+      <div class="question-card-wrapper">
+        <div class="question-card" id="question-card">
+          <div class="question-number-tag" id="q-number-tag">QUESTION 01</div>
+          <div class="question-text" id="q-text">
+            問題文がここに読み込まれます...
+          </div>
+
+          <!-- 4択選択肢 -->
+          <div class="options-grid" id="options-container">
+            <!-- ボタンがJSにより動的生成されます -->
+          </div>
+        </div>
+      </div>
+
+      <!-- クイズ画面用：タイトル（ホーム）に戻るボタン -->
+      <div class="quiz-footer-actions">
+        <button class="btn-quiz-home" id="btn-quiz-home" title="クイズを中断してタイトルへ戻る">
+          🏠 タイトル（ホーム）に戻る
+        </button>
+      </div>
+    </div>
+
+    <!-- ==========================================
+         3. リザルト画面（全問正解時）
+         ========================================== -->
+    <div class="screen" id="screen-result">
+      <div class="result-card">
+        <!-- 神々しい後光エフェクト -->
+        <div class="divine-light" id="result-divine-light" style="display: none;"></div>
+
+        <div class="result-badge" id="result-badge">STAGE CLEAR</div>
+        <h2 class="result-title partial" id="result-title">この世の心理の一部に気づいた</h2>
+
+        <p class="result-desc" id="result-desc">
+          見事な洞察力だ。今回の10問をすべて看破した！
+        </p>
+
+        <!-- 破棄通知バナー -->
+        <div class="stock-burned-notice" id="stock-burned-notice">
+          🔥 <strong>今回正解した10問はストックから破棄されました。</strong>
+        </div>
+
+        <!-- 今回の解説確認トグル -->
+        <button class="history-review-toggle" id="history-toggle-btn">
+          ▼ 今回の10問の正解・解説を振り返る
+        </button>
+        <div class="history-review-box" id="history-list"></div>
+
+        <!-- アクションボタン -->
+        <div class="btn-group">
+          <button class="btn-primary" id="btn-next-ten">
+            🍏 次の10問に挑む
+          </button>
+          <button class="btn-primary" id="btn-result-restart-all" style="display: none;">
+            ✨ もう一度最初から真理を探求する
+          </button>
+          <button class="btn-secondary" id="btn-result-title">
+            🏛 タイトルへ戻る
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==========================================
+         4. 失敗画面（不正解時）
+         ========================================== -->
+    <div class="screen" id="screen-fail">
+      <div class="result-card">
+        <div class="result-badge" style="border-color: #e74c3c; color: #ff6b6b; background: rgba(231, 76, 60, 0.15);">
+          GAME OVER
+        </div>
+        <h2 class="result-title failure">無念…！ 真理への道は険しい</h2>
+
+        <p class="result-desc">
+          真理への到達には、1つの誤謬も許されない。<br>
+          だが失敗こそが、次の仮説への偉大なる糧となるのだ。
+        </p>
+
+        <div class="history-review-box open" style="margin-bottom: 24px;">
+          <div class="history-item">
+            <div class="history-item-q" id="fail-q-text"></div>
+            <div class="history-item-exp" id="fail-exp-text"></div>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <button class="btn-primary" id="btn-retry-fail">
+            🔄 再挑戦する（別の10問に挑む）
+          </button>
+          <button class="btn-secondary" id="btn-title-fail">
+            🏛 タイトルに戻る
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- クイズデータ & ゲームスクリプト -->
+  <script src="questions.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
+

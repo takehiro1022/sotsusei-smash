@@ -1,0 +1,2732 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>スマブラ風マルチ対戦（最大4人・2v2・固定ホスト対応）</title>
+<style>
+  body {
+    margin: 0;
+    background: #181c24;
+    color: #f8fafc;
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 12px 0;
+  }
+  #top-bar {
+    margin-bottom: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    text-align: center;
+  }
+  #room-status-box {
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 8px 16px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #fbbf24;
+    text-align: center;
+  }
+  #lobby-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+    max-width: 1080px;
+  }
+  .control-divider {
+    width: 2px;
+    height: 24px;
+    background: #475569;
+    margin: 0 4px;
+  }
+  .mode-btn, .stage-btn, .host-lock-btn, #reset-ghost-btn, #start-match-btn {
+    background: #283142;
+    color: #fff;
+    border: 2px solid #475569;
+    border-radius: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+  }
+  .mode-btn.active {
+    border-color: #38bdf8;
+    background: #1e3a5f;
+  }
+  .stage-btn.active {
+    border-color: #a855f7;
+    background: #3b1e54;
+  }
+  .host-lock-btn.active {
+    border-color: #f59e0b;
+    background: #5c3a0a;
+    color: #fde68a;
+  }
+  #reset-ghost-btn {
+    border-color: #ef4444;
+    background: #451a1a;
+    color: #fca5a5;
+  }
+  .mode-btn:disabled, .stage-btn:disabled, #reset-ghost-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  #start-match-btn {
+    background: #16a34a;
+    border-color: #4ade80;
+    font-size: 14px;
+    padding: 8px 16px;
+  }
+  #start-match-btn:hover:not(:disabled) {
+    background: #15803d;
+  }
+  #start-match-btn:disabled {
+    background: #334155;
+    border-color: #475569;
+    color: #94a3b8;
+    cursor: not-allowed;
+  }
+  #char-select {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 10px;
+    max-width: 1080px;
+  }
+  #char-select.locked, #lobby-controls.locked {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .char-btn {
+    background: #283142;
+    color: #fff;
+    border: 2px solid #475569;
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    text-align: left;
+    min-width: 175px;
+  }
+  .char-btn:hover { border-color: #94a3b8; }
+  .char-btn.active { border-color: #fbbf24; background: #334155; }
+  .char-btn:disabled { cursor: not-allowed; }
+  .char-name { font-weight: bold; font-size: 14px; display: block; margin-bottom: 2px; }
+  .char-desc { font-size: 11px; color: #cbd5e1; display: block; }
+  canvas {
+    background: #273244;
+    border: 2px solid #64748b;
+    border-radius: 6px;
+    max-width: 98vw;
+  }
+  #controls-guide {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #cbd5e1;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="top-bar">サーバー接続中...</div>
+<div id="room-status-box">現在の入室人数：確認中...</div>
+
+<div id="lobby-controls">
+  <button class="mode-btn active" data-mode="ffa">⚔️ 個人戦</button>
+  <button class="mode-btn" data-mode="team2v2">🛡️ 2対2</button>
+  <div class="control-divider"></div>
+  <button class="stage-btn active" data-stage="battlefield">🏟️ スタンダード</button>
+  <button class="stage-btn" data-stage="final">🏛️ 終点(台なし)</button>
+  <button class="stage-btn" data-stage="tower">🗼 空中神殿(3段)</button>
+  <button class="stage-btn" data-stage="islands">🌉 峡谷ブリッジ</button>
+  <div class="control-divider"></div>
+  <button id="host-lock-btn" class="host-lock-btn" type="button">🔓 固定ホスト：OFF</button>
+  <button id="reset-ghost-btn" type="button">🧹 ゴースト枠整理</button>
+  <button id="start-match-btn" disabled>▶ 試合開始（2〜4人で可能）</button>
+</div>
+
+<div id="char-select">
+  <button class="char-btn active" data-char="fighter" data-idx="0">
+    <span class="char-name">🥊 格闘タイプ</span>
+    <span class="char-desc">高速移動＆超高速L攻撃</span>
+  </button>
+  <button class="char-btn" data-char="guardian" data-idx="1">
+    <span class="char-name">🛡️ 防御タイプ</span>
+    <span class="char-desc">高吹っ飛び耐性＆L5回で3秒無敵</span>
+  </button>
+  <button class="char-btn" data-char="mage" data-idx="2">
+    <span class="char-name">🔮 魔法タイプ</span>
+    <span class="char-desc">Lレーザー攻撃＆魔法スマッシュ</span>
+  </button>
+  <button class="char-btn" data-char="enhancer" data-idx="3">
+    <span class="char-name">⚡ 強化タイプ</span>
+    <span class="char-desc">Kで5段階強化(10秒CT・被撃墜リセット)</span>
+  </button>
+  <button class="char-btn" data-char="jumper" data-idx="4">
+    <span class="char-name">🦘 ジャンプタイプ</span>
+    <span class="char-desc">5段ジャンプ＆空中復帰に強い</span>
+  </button>
+  <button class="char-btn" data-char="elementalist" data-idx="5">
+    <span class="char-name">🔥❄️💥 精霊魔法タイプ</span>
+    <span class="char-desc">Iで切替(炎/氷/回復/マダンテ)・K発動</span>
+  </button>
+  <button class="char-btn" data-char="hammer" data-idx="6">
+    <span class="char-name">🔨 ハンマータイプ</span>
+    <span class="char-desc">K蓄積(80MAX)で2.5倍会心・当たるまで持続</span>
+  </button>
+  <button class="char-btn" data-char="summoner" data-idx="7">
+    <span class="char-name">👥 召喚タイプ</span>
+    <span class="char-desc">Kで初期3キャラ召喚(30秒CT・100%消滅・1体まで)</span>
+  </button>
+</div>
+
+<canvas id="game" width="1080" height="520"></canvas>
+<div id="controls-guide">
+  操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃 ｜ <b>K</b> スマッシュ（召喚：クローン召喚 / 精霊魔法：魔法発動） ｜ <b>I</b> 魔法切替（精霊魔法） ｜ <b>J</b> バリア
+</div>
+
+<script>
+const MAX_PLAYERS = 4;
+const MAX_STOCK = 5;
+const MAX_SHIELD = 160;
+const MAX_MP = 100;
+const HAMMER_MAX_CHARGE = 80;
+const GUARDIAN_INVINCIBLE_HITS = 5;
+const GUARDIAN_INVINCIBLE_FRAMES = 180;
+const SUMMON_COOLDOWN_MS = 30000;
+const SUMMON_CLONE_MAX_PERCENT = 100;
+const SUMMON_CANDIDATES = ["fighter", "guardian", "mage"];
+const SELECT_SECONDS = 10;
+const RESULT_SECONDS = 3;
+const STATE_SEND_INTERVAL_MS = 33;
+const ENHANCE_MAX_LEVEL = 5;
+const ENHANCE_COOLDOWN_MS = 10000;
+let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
+
+const STAGES = {
+  battlefield: {
+    name: "スタンダード",
+    bgColor: "#273244",
+    groundColor: "#94a3b8",
+    groundBorder: "#cbd5e1",
+    platColor: "#64748b",
+    solids: [
+      { x: 170, y: 390, w: 740, h: 36 }
+    ],
+    platforms: [
+      { x: 240, y: 275, w: 220, h: 14 },
+      { x: 620, y: 275, w: 220, h: 14 }
+    ],
+    spawns: {
+      1: { x: 240, y: 150, facing: 1 },
+      2: { x: 800, y: 150, facing: -1 },
+      3: { x: 420, y: 120, facing: 1 },
+      4: { x: 620, y: 120, facing: -1 }
+    }
+  },
+  final: {
+    name: "終点(台なし)",
+    bgColor: "#1e1b2e",
+    groundColor: "#818cf8",
+    groundBorder: "#c7d2fe",
+    platColor: "#6366f1",
+    solids: [
+      { x: 140, y: 395, w: 800, h: 38 }
+    ],
+    platforms: [],
+    spawns: {
+      1: { x: 220, y: 260, facing: 1 },
+      2: { x: 820, y: 260, facing: -1 },
+      3: { x: 400, y: 260, facing: 1 },
+      4: { x: 640, y: 260, facing: -1 }
+    }
+  },
+  tower: {
+    name: "空中神殿(3段)",
+    bgColor: "#1c2a2b",
+    groundColor: "#34d399",
+    groundBorder: "#a7f3d0",
+    platColor: "#059669",
+    solids: [
+      { x: 200, y: 410, w: 680, h: 34 }
+    ],
+    platforms: [
+      { x: 220, y: 300, w: 190, h: 14 },
+      { x: 670, y: 300, w: 190, h: 14 },
+      { x: 430, y: 195, w: 220, h: 14 }
+    ],
+    spawns: {
+      1: { x: 270, y: 180, facing: 1 },
+      2: { x: 770, y: 180, facing: -1 },
+      3: { x: 470, y: 100, facing: 1 },
+      4: { x: 580, y: 100, facing: -1 }
+    }
+  },
+  islands: {
+    name: "峡谷ブリッジ",
+    bgColor: "#2b211c",
+    groundColor: "#f59e0b",
+    groundBorder: "#fde68a",
+    platColor: "#d97706",
+    solids: [
+      { x: 130, y: 385, w: 320, h: 36 },
+      { x: 630, y: 385, w: 320, h: 36 }
+    ],
+    platforms: [
+      { x: 420, y: 285, w: 240, h: 14 },
+      { x: 180, y: 245, w: 160, h: 14 },
+      { x: 740, y: 245, w: 160, h: 14 }
+    ],
+    spawns: {
+      1: { x: 210, y: 160, facing: 1 },
+      2: { x: 830, y: 160, facing: -1 },
+      3: { x: 350, y: 260, facing: 1 },
+      4: { x: 700, y: 260, facing: -1 }
+    }
+  }
+};
+
+const MAGIC_MODES = ["fire", "ice", "heal", "magic"];
+const MAGIC_INFO = {
+  fire: { label: "炎", cost: 20, minCost: 20, color: "#f97316", beamColor: "rgba(249, 115, 22, 0.72)" },
+  ice: { label: "氷", cost: 10, minCost: 10, color: "#38bdf8", beamColor: "rgba(56, 189, 248, 0.72)" },
+  heal: { label: "回復", cost: 30, minCost: 30, color: "#4ade80", beamColor: "rgba(74, 222, 128, 0.65)" },
+  magic: { label: "マダンテ", cost: "全MP", minCost: 10, color: "#fde047", beamColor: "rgba(253, 224, 71, 0.75)" }
+};
+
+const CHAR_ORDER = ["fighter", "guardian", "mage", "enhancer", "jumper", "elementalist", "hammer", "summoner"];
+const CHAR_SPECS = {
+  fighter: {
+    name: "格闘",
+    color: "#ff5c5c",
+    moveAcc: 1.18,
+    friction: 0.80,
+    jumpPower: -11.5,
+    maxJumps: 2,
+    weight: 0.94,
+    lightDmg: 6,
+    lightCooldown: 7,
+    smashDmg: 12,
+    smashCooldown: 24,
+    shieldDrain: 0.42
+  },
+  guardian: {
+    name: "防御",
+    color: "#38bdf8",
+    moveAcc: 0.72,
+    friction: 0.85,
+    jumpPower: -10.2,
+    maxJumps: 2,
+    weight: 1.52,
+    lightDmg: 10,
+    lightCooldown: 16,
+    smashDmg: 14,
+    smashCooldown: 28,
+    shieldDrain: 0.28
+  },
+  mage: {
+    name: "魔法",
+    color: "#c084fc",
+    moveAcc: 0.92,
+    friction: 0.82,
+    jumpPower: -11.2,
+    maxJumps: 2,
+    weight: 1.00,
+    lightDmg: 8,
+    lightCooldown: 16,
+    smashDmg: 13,
+    smashCooldown: 25,
+    shieldDrain: 0.45
+  },
+  enhancer: {
+    name: "強化",
+    color: "#34d399",
+    moveAcc: 0.85,
+    friction: 0.82,
+    jumpPower: -11.0,
+    maxJumps: 2,
+    weight: 1.00,
+    lightDmg: 7,
+    lightCooldown: 13,
+    smashDmg: 13,
+    smashCooldown: 25,
+    shieldDrain: 0.38
+  },
+  jumper: {
+    name: "ジャンプ",
+    color: "#f59e0b",
+    moveAcc: 1.02,
+    friction: 0.82,
+    jumpPower: -11.4,
+    maxJumps: 5,
+    weight: 0.92,
+    lightDmg: 7,
+    lightCooldown: 12,
+    smashDmg: 12,
+    smashCooldown: 24,
+    shieldDrain: 0.40
+  },
+  elementalist: {
+    name: "精霊魔法",
+    color: "#f472b6",
+    moveAcc: 0.90,
+    friction: 0.82,
+    jumpPower: -11.0,
+    maxJumps: 2,
+    weight: 1.00,
+    lightDmg: 7,
+    lightCooldown: 12,
+    smashDmg: 13,
+    smashCooldown: 22,
+    shieldDrain: 0.40
+  },
+  hammer: {
+    name: "ハンマー",
+    color: "#fb923c",
+    moveAcc: 0.80,
+    friction: 0.83,
+    jumpPower: -10.6,
+    maxJumps: 2,
+    weight: 1.18,
+    lightDmg: 8,
+    lightCooldown: 14,
+    smashDmg: 14,
+    smashCooldown: 26,
+    shieldDrain: 0.34
+  },
+  summoner: {
+    name: "召喚",
+    color: "#2dd4bf",
+    moveAcc: 0.94,
+    friction: 0.82,
+    jumpPower: -11.1,
+    maxJumps: 2,
+    weight: 0.98,
+    lightDmg: 7,
+    lightCooldown: 13,
+    smashDmg: 12,
+    smashCooldown: 24,
+    shieldDrain: 0.40
+  }
+};
+
+const PLAYER_COLORS = {
+  1: "#ff5c5c",
+  2: "#38bdf8",
+  3: "#4ade80",
+  4: "#fbbf24"
+};
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("top-bar");
+const roomStatusEl = document.getElementById("room-status-box");
+const lobbyControlsEl = document.getElementById("lobby-controls");
+const charSelectEl = document.getElementById("char-select");
+const hostLockBtn = document.getElementById("host-lock-btn");
+const resetGhostBtn = document.getElementById("reset-ghost-btn");
+const startMatchBtn = document.getElementById("start-match-btn");
+const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+const stageButtons = Array.from(document.querySelectorAll(".stage-btn"));
+const charButtons = Array.from(document.querySelectorAll(".char-btn"));
+
+const ctxPath = "/" + location.pathname.split("/")[1];
+const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
+const ws = new WebSocket(wsProto + location.host + ctxPath + "/smash-ws");
+
+let phase = "waiting"; // "waiting" | "selecting" | "playing" | "gameover"
+let gameMode = "ffa";  // "ffa" | "team2v2"
+let currentStageKey = "battlefield";
+let myRole = 0;        // 1..4
+let activeRoles = [];
+let seenPeerRoles = new Set(); // 実際に他プレイヤーから通信があったrole
+let ghostFilterActive = false;
+let entryBlockedByHost = false;
+let selectSecLeft = SELECT_SECONDS;
+let resultSecLeft = RESULT_SECONDS;
+let countdownTimerId = null;
+let selectedIdx = 0;
+let selectedChar = CHAR_ORDER[0];
+let winnerInfo = null;
+let lastFrameTime = performance.now();
+let lastStateSentAt = 0;
+let matchStartedAt = 0;
+let gameOverSent = false;
+
+let projectiles = [];
+let beams = [];
+let ringEffects = [];
+let burnDebuffs = [];
+let clones = {}; // ownerRole -> clone object
+
+function normalizeRolesList(list) {
+  if (!Array.isArray(list)) return [];
+  const uniqueValid = [...new Set(list)]
+    .map(n => Number(n))
+    .filter(n => Number.isInteger(n) && n >= 1 && n <= MAX_PLAYERS);
+  return uniqueValid.sort((a, b) => a - b);
+}
+
+function pruneGhostRoles(list) {
+  const base = normalizeRolesList(list);
+  if (!ghostFilterActive) return base;
+  return base.filter(r => r === myRole || seenPeerRoles.has(r));
+}
+
+function isHostPresentInList(list) {
+  const roles = pruneGhostRoles(list);
+  if (roles.length === 0) return false;
+  if (fixedHostThisPc && myRole !== 0 && roles.includes(myRole)) return true;
+  return roles.includes(1);
+}
+
+function getCurrentStage() {
+  return STAGES[currentStageKey] || STAGES.battlefield;
+}
+
+function getSpawnPoint(roleNum) {
+  const st = getCurrentStage();
+  return (st.spawns && st.spawns[roleNum]) || st.spawns[1];
+}
+
+function findSolidBeneath(cx, footY) {
+  const st = getCurrentStage();
+  for (const s of st.solids) {
+    if (cx >= s.x - 10 && cx <= s.x + s.w + 10 && footY <= s.y + 40) {
+      return s;
+    }
+  }
+  return st.solids[0];
+}
+
+function getTeamOfRole(role) {
+  if (gameMode !== "team2v2") return null;
+  return (role === 1 || role === 2) ? "A" : "B";
+}
+
+function isSameTeam(roleA, roleB) {
+  if (gameMode !== "team2v2") return false;
+  return getTeamOfRole(roleA) === getTeamOfRole(roleB);
+}
+
+function getMaxJumpsForPlayer(p) {
+  const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
+  return spec.maxJumps || 2;
+}
+
+function getEffectiveMoveAcc(p, spec) {
+  if (p.charKey === "enhancer") {
+    const lv = p.enhanceLevel || 0;
+    return spec.moveAcc * (1 + lv * 0.14);
+  }
+  return spec.moveAcc;
+}
+
+function getEffectiveLightStats(p, spec) {
+  if (p.charKey === "enhancer") {
+    const lv = p.enhanceLevel || 0;
+    return {
+      dmg: Math.round(spec.lightDmg + lv * 2.5),
+      basePower: 6.5 * (1 + lv * 0.24)
+    };
+  }
+  return {
+    dmg: spec.lightDmg,
+    basePower: 6.5
+  };
+}
+
+function calcMagicPowerFromMp(spentMp) {
+  const clamped = Math.max(10, Math.min(MAX_MP, spentMp));
+  const ratio = (clamped - 10) / (MAX_MP - 10);
+  const dmg = Math.round(3 + ratio * 77);
+  const basePower = 2.5 + ratio * 11.0;
+  const maxRadius = 125 + ratio * 125;
+  return { dmg, basePower, maxRadius };
+}
+
+function makePlayer(roleNum, charKey) {
+  const sp = getSpawnPoint(roleNum);
+  const spec = CHAR_SPECS[charKey] || CHAR_SPECS.fighter;
+  return {
+    role: roleNum,
+    active: false,
+    charKey,
+    x: sp.x, y: sp.y,
+    w: 34, h: 44,
+    vx: 0, vy: 0,
+    facing: sp.facing,
+    jumps: spec.maxJumps || 2,
+    dropThroughTimer: 0,
+    percent: 0,
+    stocks: MAX_STOCK,
+    atkType: null,
+    atkTimer: 0,
+    cooldown: 0,
+    hasHit: false,
+    smashCharging: false,
+    smashChargeStart: 0,
+    smashChargeRatio: 0,
+    enhanceLevel: 0,
+    enhanceCooldownUntil: 0,
+    hammerCharge: 0,
+    critReady: false,
+    critActive: false,
+    guardianHits: 0,
+    invincibleTimer: 0,
+    summonCooldownUntil: 0,
+    hasClone: false,
+    mp: MAX_MP,
+    magicMode: "fire",
+    frozen: false,
+    stun: 0,
+    shielding: false,
+    shieldHp: MAX_SHIELD,
+    burnedOut: false,
+    color: PLAYER_COLORS[roleNum] || "#f8fafc"
+  };
+}
+
+const players = {
+  1: makePlayer(1, "fighter"),
+  2: makePlayer(2, "guardian"),
+  3: makePlayer(3, "mage"),
+  4: makePlayer(4, "fighter")
+};
+
+function clearTimers() {
+  if (countdownTimerId) {
+    clearInterval(countdownTimerId);
+    countdownTimerId = null;
+  }
+}
+
+function resetSinglePlayer(p, roleNum) {
+  const sp = getSpawnPoint(roleNum);
+  const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
+  p.x = sp.x; p.y = sp.y;
+  p.vx = 0; p.vy = 0;
+  p.percent = 0; p.stocks = MAX_STOCK; p.stun = 0;
+  p.jumps = spec.maxJumps || 2; p.facing = sp.facing;
+  p.dropThroughTimer = 0;
+  p.atkType = null; p.atkTimer = 0; p.cooldown = 0; p.hasHit = false;
+  p.smashCharging = false;
+  p.smashChargeStart = 0;
+  p.smashChargeRatio = 0;
+  p.enhanceLevel = 0;
+  p.enhanceCooldownUntil = 0;
+  p.hammerCharge = 0;
+  p.critReady = false;
+  p.critActive = false;
+  p.guardianHits = 0;
+  p.invincibleTimer = 0;
+  p.summonCooldownUntil = 0;
+  p.hasClone = false;
+  p.mp = MAX_MP;
+  p.magicMode = "fire";
+  p.frozen = false;
+  p.shielding = false; p.shieldHp = MAX_SHIELD; p.burnedOut = false;
+}
+
+function syncActivePlayersFromRoles() {
+  for (let r = 1; r <= MAX_PLAYERS; r++) {
+    players[r].active = !entryBlockedByHost && activeRoles.includes(r);
+  }
+}
+
+function resetPlayersForNewMatch() {
+  for (let r = 1; r <= MAX_PLAYERS; r++) {
+    resetSinglePlayer(players[r], r);
+  }
+  projectiles = [];
+  beams = [];
+  ringEffects = [];
+  burnDebuffs = [];
+  clones = {};
+  winnerInfo = null;
+  gameOverSent = false;
+}
+
+function isHost() {
+  if (entryBlockedByHost || myRole === 0 || activeRoles.length === 0) return false;
+  if (fixedHostThisPc) return true;
+  return myRole === 1;
+}
+
+function isRoleHost(r) {
+  if (fixedHostThisPc && r === myRole && !entryBlockedByHost) return true;
+  return r === 1 && activeRoles.includes(1);
+}
+
+function updateHostLockButtonUI() {
+  hostLockBtn.classList.toggle("active", fixedHostThisPc);
+  hostLockBtn.textContent = fixedHostThisPc ? "🔒 固定ホスト：ON" : "🔓 固定ホスト：OFF";
+}
+
+function updateHostControls() {
+  updateHostLockButtonUI();
+  const host = isHost();
+  const isMatchActive = (phase === "playing" || phase === "gameover");
+
+  modeButtons.forEach(b => {
+    b.disabled = entryBlockedByHost || isMatchActive || !host;
+  });
+  stageButtons.forEach(b => {
+    b.disabled = entryBlockedByHost || isMatchActive || !host;
+  });
+  resetGhostBtn.disabled = entryBlockedByHost || isMatchActive || !host;
+
+  const enoughPlayers = activeRoles.length >= 2;
+  startMatchBtn.disabled = entryBlockedByHost || isMatchActive || !enoughPlayers || !host;
+
+  if (entryBlockedByHost) {
+    startMatchBtn.textContent = `⏳ ホスト入室待ち`;
+  } else if (!enoughPlayers) {
+    startMatchBtn.textContent = `▶ 試合開始（あと ${2 - activeRoles.length} 人）`;
+  } else if (!host) {
+    startMatchBtn.textContent = `▶ 試合開始（ホストのみ）`;
+  } else {
+    startMatchBtn.textContent = `▶ 試合開始（${activeRoles.length}人）`;
+  }
+}
+
+function setLobbyLocked(locked) {
+  const shouldLock = locked || entryBlockedByHost;
+  charSelectEl.classList.toggle("locked", shouldLock);
+  lobbyControlsEl.classList.toggle("locked", shouldLock);
+  charButtons.forEach(b => { b.disabled = shouldLock; });
+  updateHostControls();
+}
+
+function updateRoomStatusBox() {
+  const memberList = activeRoles.length > 0
+    ? activeRoles.map(r => {
+        const hostMark = isRoleHost(r) ? "(ホスト)" : "";
+        const teamMark = gameMode === "team2v2" ? `[${getTeamOfRole(r)}]` : "";
+        return `${r}P${teamMark}${hostMark}`;
+      }).join(" / ")
+    : "なし";
+  const modeText = gameMode === "team2v2" ? "2対2" : "個人戦";
+  const stageText = getCurrentStage().name;
+  const lockBadge = fixedHostThisPc ? " [固定ホスト]" : "";
+  const ghostBadge = ghostFilterActive ? " [幽霊整理中]" : "";
+  if (entryBlockedByHost) {
+    roomStatusEl.textContent = `🔒 ホスト入室待ちのため入室待機中 ｜ 現在の入室：${activeRoles.length}/4人（${memberList}）`;
+  } else {
+    roomStatusEl.textContent = `入室中：${activeRoles.length}/4人（${memberList}） ｜ モード：${modeText} ｜ マップ：${stageText}${lockBadge}${ghostBadge}`;
+  }
+}
+
+function sendModeSync() {
+  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0 && isHost()) {
+    ws.send(JSON.stringify({ type: "mode", mode: gameMode }));
+  }
+}
+
+function sendStageSync() {
+  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0 && isHost()) {
+    ws.send(JSON.stringify({ type: "stage", stageKey: currentStageKey }));
+  }
+}
+
+function setMode(newMode, broadcastChange = true) {
+  if (entryBlockedByHost) return;
+  if (phase === "playing" || phase === "gameover") return;
+  if (broadcastChange && !isHost()) return;
+  gameMode = newMode;
+  modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === gameMode));
+  updateRoomStatusBox();
+  if (broadcastChange && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "mode", mode: gameMode }));
+  }
+  updateStatusByPhase();
+}
+
+function setStage(newStageKey, broadcastChange = true) {
+  if (entryBlockedByHost) return;
+  if (!STAGES[newStageKey]) return;
+  if (phase === "playing" || phase === "gameover") return;
+  if (broadcastChange && !isHost()) return;
+  currentStageKey = newStageKey;
+  stageButtons.forEach(b => b.classList.toggle("active", b.dataset.stage === currentStageKey));
+  for (let r = 1; r <= MAX_PLAYERS; r++) {
+    const sp = getSpawnPoint(r);
+    players[r].x = sp.x;
+    players[r].y = sp.y;
+    players[r].facing = sp.facing;
+  }
+  updateRoomStatusBox();
+  if (broadcastChange && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "stage", stageKey: currentStageKey }));
+  }
+  updateStatusByPhase();
+}
+
+function cleanupGhostRoles() {
+  if (!isHost() || phase === "playing" || phase === "gameover") return;
+  ghostFilterActive = true;
+  activeRoles = pruneGhostRoles(activeRoles);
+  for (let r = 1; r <= MAX_PLAYERS; r++) {
+    if (!activeRoles.includes(r)) {
+      players[r].active = false;
+      delete clones[r];
+    }
+  }
+  syncActivePlayersFromRoles();
+  updateRoomStatusBox();
+  updateHostControls();
+  updateStatusByPhase();
+  if (ws.readyState === WebSocket.OPEN && myRole !== 0) {
+    ws.send(JSON.stringify({ type: "room", roles: activeRoles }));
+    if (players[myRole]) {
+      sendMyState(players[myRole], true);
+    }
+  }
+}
+
+resetGhostBtn.addEventListener("click", cleanupGhostRoles);
+
+hostLockBtn.addEventListener("click", () => {
+  fixedHostThisPc = !fixedHostThisPc;
+  localStorage.setItem("smash_host_locked", fixedHostThisPc ? "1" : "0");
+  if (fixedHostThisPc && myRole !== 0) {
+    entryBlockedByHost = false;
+    syncActivePlayersFromRoles();
+    setLobbyLocked(phase === "playing" || phase === "gameover");
+  }
+  updateHostControls();
+  updateRoomStatusBox();
+  updateStatusByPhase();
+  if (isHost()) {
+    sendModeSync();
+    sendStageSync();
+  }
+});
+
+modeButtons.forEach(btn => {
+  btn.addEventListener("click", () => setMode(btn.dataset.mode, true));
+});
+
+stageButtons.forEach(btn => {
+  btn.addEventListener("click", () => setStage(btn.dataset.stage, true));
+});
+
+function setSelectedCharByIndex(idx) {
+  if (entryBlockedByHost || phase === "playing" || phase === "gameover") return;
+  selectedIdx = (idx + CHAR_ORDER.length) % CHAR_ORDER.length;
+  selectedChar = CHAR_ORDER[selectedIdx];
+  charButtons.forEach((b, i) => b.classList.toggle("active", i === selectedIdx));
+  if (myRole !== 0 && players[myRole]) {
+    players[myRole].charKey = selectedChar;
+    players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
+    players[myRole].mp = MAX_MP;
+    players[myRole].hammerCharge = 0;
+    players[myRole].critReady = false;
+    players[myRole].critActive = false;
+    players[myRole].guardianHits = 0;
+    players[myRole].invincibleTimer = 0;
+    players[myRole].summonCooldownUntil = 0;
+    players[myRole].hasClone = false;
+    sendCharChange();
+  }
+}
+
+charButtons.forEach((btn, idx) => {
+  btn.addEventListener("click", () => setSelectedCharByIndex(idx));
+});
+
+function sendCharChange() {
+  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0) {
+    ws.send(JSON.stringify({ type: "char", role: myRole, charKey: selectedChar }));
+  }
+}
+
+function updateStatusByPhase() {
+  const modeLabel = gameMode === "team2v2" ? "2対2" : "個人戦";
+  const stageLabel = getCurrentStage().name;
+  const hostLabel = isHost() ? "★ホスト" : "";
+  if (entryBlockedByHost) {
+    statusEl.textContent = `🔒 ホスト（実行側）がまだ入室していないため入室できません（待機中）`;
+  } else if (phase === "waiting") {
+    statusEl.textContent = `あなたは ${myRole ? myRole + "P" : "観戦"} ${hostLabel}（${modeLabel}・${stageLabel}）｜ 参加中: ${activeRoles.length}/4人`;
+  } else if (phase === "selecting") {
+    statusEl.textContent = `キャラ選択中（${modeLabel}・${stageLabel}）！ 残り ${selectSecLeft} 秒（あなた：${myRole}P・${CHAR_SPECS[selectedChar].name}）`;
+  } else if (phase === "playing") {
+    statusEl.textContent = `バトル中（${modeLabel}・${stageLabel}）！ あなたは ${myRole}P（${CHAR_SPECS[selectedChar].name}）`;
+  }
+}
+
+function startSelectionPhase() {
+  if (entryBlockedByHost) return;
+  clearTimers();
+  phase = "selecting";
+  resetPlayersForNewMatch();
+  syncActivePlayersFromRoles();
+  setLobbyLocked(false);
+  if (myRole !== 0 && players[myRole]) {
+    players[myRole].charKey = selectedChar;
+    players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
+    players[myRole].mp = MAX_MP;
+    sendCharChange();
+  }
+  sendModeSync();
+  sendStageSync();
+
+  selectSecLeft = SELECT_SECONDS;
+  updateStatusByPhase();
+
+  countdownTimerId = setInterval(() => {
+    selectSecLeft--;
+    if (selectSecLeft > 0) {
+      updateStatusByPhase();
+    } else {
+      clearTimers();
+      startBattlePhase();
+    }
+  }, 1000);
+}
+
+function startBattlePhase() {
+  if (entryBlockedByHost) return;
+  clearTimers();
+  phase = "playing";
+  matchStartedAt = performance.now();
+  winnerInfo = null;
+  gameOverSent = false;
+  setLobbyLocked(true);
+
+  resetPlayersForNewMatch();
+  syncActivePlayersFromRoles();
+  if (myRole !== 0 && players[myRole]) {
+    players[myRole].charKey = selectedChar;
+    players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
+    players[myRole].mp = MAX_MP;
+    sendCharChange();
+    sendMyState(players[myRole], true);
+  }
+  updateStatusByPhase();
+}
+
+function requestStartBattle() {
+  if (entryBlockedByHost || activeRoles.length < 2 || !isHost()) return;
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "start_match", mode: gameMode, stageKey: currentStageKey }));
+  }
+  if (phase === "waiting" || phase === "selecting") {
+    startBattlePhase();
+  }
+}
+
+startMatchBtn.addEventListener("click", requestStartBattle);
+
+function finishGame(info) {
+  if (phase === "gameover") return;
+  clearTimers();
+  phase = "gameover";
+  winnerInfo = info;
+  resultSecLeft = RESULT_SECONDS;
+  updateHostControls();
+
+  let headline = "";
+  let subline = "";
+  if (info.type === "team") {
+    const teamName = info.winnerTeam === "A" ? "Aチーム（1P・2P）" : "Bチーム（3P・4P）";
+    const myTeam = getTeamOfRole(myRole);
+    headline = `${teamName} WIN!`;
+    subline = (myTeam && myTeam === info.winnerTeam) ? "あなたのチームの勝利！🎉" : "あなたのチームは敗北...";
+  } else {
+    const winRole = info.winnerRole;
+    headline = `${winRole}P WIN!`;
+    subline = (winRole === myRole) ? "あなたの勝利！🎉" : "ストックが0になりました（負け）";
+  }
+
+  statusEl.textContent = `${headline}（${subline}） ${resultSecLeft}秒後にキャラ選択へ戻ります...`;
+
+  countdownTimerId = setInterval(() => {
+    resultSecLeft--;
+    if (resultSecLeft > 0) {
+      statusEl.textContent = `${headline}（${subline}） ${resultSecLeft}秒後にキャラ選択へ戻ります...`;
+    } else {
+      startSelectionPhase();
+    }
+  }, 1000);
+}
+
+function broadcastGameOver(info) {
+  if (gameOverSent) return;
+  gameOverSent = true;
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "gameover", info }));
+  }
+  finishGame(info);
+}
+
+function triggerBurnout(me) {
+  if ((me.invincibleTimer || 0) > 0) return;
+  me.shielding = false;
+  me.shieldHp = 0;
+  me.burnedOut = true;
+  me.frozen = false;
+  me.stun = 180;
+  me.vy = -7.5;
+  me.vx = 0;
+}
+
+function checkMatchEndCondition() {
+  if (phase !== "playing" || entryBlockedByHost) return;
+  const alivePlayers = activeRoles.map(r => players[r]).filter(p => p && p.active && p.stocks > 0);
+
+  if (gameMode === "team2v2") {
+    const teamAAlive = alivePlayers.some(p => getTeamOfRole(p.role) === "A");
+    const teamBAlive = alivePlayers.some(p => getTeamOfRole(p.role) === "B");
+    if (!teamAAlive && teamBAlive) {
+      broadcastGameOver({ type: "team", winnerTeam: "B" });
+    } else if (!teamBAlive && teamAAlive) {
+      broadcastGameOver({ type: "team", winnerTeam: "A" });
+    }
+  } else {
+    if (alivePlayers.length === 1) {
+      broadcastGameOver({ type: "player", winnerRole: alivePlayers[0].role });
+    } else if (alivePlayers.length === 0 && myRole !== 0) {
+      broadcastGameOver({ type: "player", winnerRole: myRole });
+    }
+  }
+}
+
+function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62) {
+  if ((me.invincibleTimer || 0) > 0) {
+    return;
+  }
+
+  if (me.shielding && !me.burnedOut) {
+    me.shieldHp -= dmg * 2.2;
+    me.percent += Math.floor(dmg * 0.15);
+    me.vx = dir * 2.5;
+    if (me.shieldHp <= 0) {
+      triggerBurnout(me);
+    }
+    sendMyState(me, true);
+    return;
+  }
+
+  me.percent += dmg;
+  if (basePower > 0) {
+    const kbScale = (1 + me.percent * 0.0165) / spec.weight;
+    me.vx = dir * basePower * kbScale;
+    me.vy = -basePower * upAngleMult * kbScale;
+    me.stun = Math.max(me.stun, Math.min(45, Math.floor(10 + basePower * 0.75)));
+  }
+  sendMyState(me, true);
+}
+
+function sendCloneSync(cloneObj) {
+  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0) {
+    ws.send(JSON.stringify({
+      type: "clone",
+      ownerRole: myRole,
+      clone: cloneObj
+    }));
+  }
+}
+
+function applyHitToMyClone(dmg, basePower, dir, effect = null, upAngleMult = 0.62) {
+  if (entryBlockedByHost || myRole === 0) return;
+  const cl = clones[myRole];
+  const me = players[myRole];
+  if (!cl || !cl.active) return;
+
+  if (effect === "freeze") {
+    cl.stun = Math.max(cl.stun || 0, 45);
+    cl.percent += 4;
+  } else if (effect === "burn") {
+    cl.percent += 15;
+  } else {
+    cl.percent += dmg;
+    if (basePower > 0) {
+      const spec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
+      const kbScale = (1 + cl.percent * 0.0165) / spec.weight;
+      cl.vx = dir * basePower * kbScale;
+      cl.vy = -basePower * upAngleMult * kbScale;
+      cl.stun = Math.max(cl.stun || 0, Math.min(40, Math.floor(8 + basePower * 0.7)));
+    }
+  }
+
+  if (cl.percent >= SUMMON_CLONE_MAX_PERCENT) {
+    delete clones[myRole];
+    if (me) {
+      me.hasClone = false;
+      sendMyState(me, true);
+    }
+    sendCloneSync(null);
+  } else {
+    sendCloneSync(cl);
+  }
+}
+
+function markPeerActive(peerRole) {
+  const r = Number(peerRole);
+  if (!Number.isInteger(r) || r < 1 || r > MAX_PLAYERS || r === myRole) return;
+  seenPeerRoles.add(r);
+  if (!entryBlockedByHost && !activeRoles.includes(r)) {
+    activeRoles = [...activeRoles, r].sort((a, b) => a - b);
+    syncActivePlayersFromRoles();
+    updateRoomStatusBox();
+    updateHostControls();
+    updateStatusByPhase();
+  }
+}
+
+function applyRoomSnapshot(rawRoles) {
+  const nextRoles = pruneGhostRoles(rawRoles);
+  const hostPresent = isHostPresentInList(nextRoles);
+
+  if (!hostPresent && !fixedHostThisPc) {
+    entryBlockedByHost = true;
+    activeRoles = [];
+    for (let r = 1; r <= MAX_PLAYERS; r++) {
+      players[r].active = false;
+    }
+    setLobbyLocked(true);
+    updateRoomStatusBox();
+    updateHostControls();
+    updateStatusByPhase();
+    return;
+  }
+
+  entryBlockedByHost = false;
+  activeRoles = nextRoles;
+  syncActivePlayersFromRoles();
+  setLobbyLocked(phase === "playing" || phase === "gameover");
+  updateRoomStatusBox();
+  updateHostControls();
+  updateStatusByPhase();
+
+  if ((phase === "waiting" || phase === "selecting") && myRole !== 0 && activeRoles.includes(myRole)) {
+    sendCharChange();
+    sendModeSync();
+    sendStageSync();
+  }
+}
+
+ws.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  if (data.type === "role") {
+    const assignedRole = Number(data.role) || 0;
+    myRole = assignedRole;
+    const baseList = Array.isArray(data.roles)
+      ? data.roles
+      : (assignedRole > 0 ? [...activeRoles, assignedRole] : activeRoles);
+    const normalized = pruneGhostRoles(baseList);
+
+    if (!fixedHostThisPc && !isHostPresentInList(normalized)) {
+      entryBlockedByHost = true;
+      activeRoles = [];
+      clearTimers();
+      phase = "waiting";
+      syncActivePlayersFromRoles();
+      setLobbyLocked(true);
+      updateRoomStatusBox();
+      updateHostControls();
+      updateStatusByPhase();
+      return;
+    }
+
+    entryBlockedByHost = false;
+    activeRoles = normalized;
+    clearTimers();
+    phase = "waiting";
+    syncActivePlayersFromRoles();
+    setLobbyLocked(false);
+    updateRoomStatusBox();
+    if (players[myRole]) {
+      players[myRole].active = true;
+      players[myRole].charKey = selectedChar;
+      players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
+      players[myRole].mp = MAX_MP;
+      sendCharChange();
+    }
+    updateStatusByPhase();
+  } else if (data.type === "room") {
+    applyRoomSnapshot(data.roles);
+  } else if (data.type === "mode") {
+    if (data.mode === "ffa" || data.mode === "team2v2") {
+      setMode(data.mode, false);
+    }
+  } else if (data.type === "stage") {
+    if (data.stageKey && STAGES[data.stageKey]) {
+      setStage(data.stageKey, false);
+    }
+  } else if (data.type === "start_match") {
+    if (entryBlockedByHost) return;
+    if (data.mode === "ffa" || data.mode === "team2v2") {
+      gameMode = data.mode;
+      modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === gameMode));
+    }
+    if (data.stageKey && STAGES[data.stageKey]) {
+      currentStageKey = data.stageKey;
+      stageButtons.forEach(b => b.classList.toggle("active", b.dataset.stage === currentStageKey));
+    }
+    updateRoomStatusBox();
+    if (phase === "waiting" || phase === "selecting") {
+      startBattlePhase();
+    }
+  } else if (data.type === "full") {
+    statusEl.textContent = "満員です（最大4人まで対戦可能）";
+    roomStatusEl.textContent = "入室中：4 / 4人（満員）";
+  } else if (data.type === "leave") {
+    const leftRole = Number(data.role) || 0;
+    if (leftRole) {
+      seenPeerRoles.delete(leftRole);
+      const remaining = activeRoles.filter(r => r !== leftRole);
+      delete clones[leftRole];
+      if (players[leftRole]) {
+        players[leftRole].active = false;
+        players[leftRole].stocks = 0;
+      }
+      if (!fixedHostThisPc && !isHostPresentInList(remaining)) {
+        entryBlockedByHost = true;
+        activeRoles = [];
+        clearTimers();
+        phase = "waiting";
+        setLobbyLocked(true);
+        updateRoomStatusBox();
+        updateHostControls();
+        updateStatusByPhase();
+        return;
+      }
+      activeRoles = remaining;
+    }
+    updateRoomStatusBox();
+    updateHostControls();
+    if (phase === "playing") {
+      checkMatchEndCondition();
+    } else {
+      updateStatusByPhase();
+    }
+  } else if (data.type === "char") {
+    if (data.role === myRole) return;
+    markPeerActive(data.role);
+    if (players[data.role]) {
+      players[data.role].charKey = data.charKey;
+    }
+  } else if (data.type === "state") {
+    if (phase === "gameover") return;
+    if (!data.player || data.player.role === myRole) return;
+    const targetRole = Number(data.player.role);
+    if (!Number.isInteger(targetRole) || targetRole < 1 || targetRole > MAX_PLAYERS) return;
+    markPeerActive(targetRole);
+    const target = players[targetRole];
+    if (target) {
+      const justStarted = (phase === "playing" && (performance.now() - matchStartedAt) < 600);
+      const prevStocks = target.stocks;
+      Object.assign(target, data.player);
+      target.role = targetRole;
+      target.active = !entryBlockedByHost;
+      if (!target.hasClone) {
+        delete clones[target.role];
+      }
+      if (justStarted) {
+        target.stocks = Math.max(prevStocks, MAX_STOCK);
+        target.percent = 0;
+      }
+      if (!entryBlockedByHost && !activeRoles.includes(target.role)) {
+        activeRoles = [...activeRoles, target.role].sort((a, b) => a - b);
+        updateRoomStatusBox();
+        updateHostControls();
+      }
+      if (phase === "playing" && !justStarted) {
+        checkMatchEndCondition();
+      }
+    }
+  } else if (data.type === "clone") {
+    if (phase === "gameover") return;
+    if (data.ownerRole === myRole) return;
+    if (data.clone && data.clone.active) {
+      clones[data.ownerRole] = data.clone;
+    } else {
+      delete clones[data.ownerRole];
+    }
+  } else if (data.type === "clone_hit") {
+    if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+    if (data.ownerRole !== myRole) return;
+    if (data.attackerRole === myRole || isSameTeam(data.attackerRole, myRole)) return;
+    applyHitToMyClone(data.dmg || 0, data.basePower || 0, data.dir || 1, data.effect || null, data.upAngleMult || 0.62);
+  } else if (data.type === "gameover") {
+    if (entryBlockedByHost) return;
+    if (data.info) {
+      gameOverSent = true;
+      finishGame(data.info);
+    }
+  } else if (data.type === "projectile") {
+    if (phase === "gameover") return;
+    if (data.proj && data.proj.ownerRole !== myRole) {
+      projectiles.push(data.proj);
+    }
+  } else if (data.type === "beam") {
+    if (phase === "gameover") return;
+    if (data.beam && data.beam.ownerRole !== myRole) {
+      beams.push(data.beam);
+    }
+  } else if (data.type === "ring") {
+    if (phase === "gameover") return;
+    if (data.ring && data.ring.ownerRole !== myRole) {
+      ringEffects.push(data.ring);
+    }
+  } else if (data.type === "hit_confirm") {
+    if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+    if (data.attackerRole !== myRole) return;
+    const me = players[myRole];
+    if (!me) return;
+
+    let changed = false;
+    if (me.charKey === "elementalist") {
+      me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
+      changed = true;
+    }
+    if (me.charKey === "guardian" && data.wasLight) {
+      if ((me.invincibleTimer || 0) <= 0) {
+        me.guardianHits = (me.guardianHits || 0) + 1;
+        if (me.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
+          me.guardianHits = 0;
+          me.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
+        }
+        changed = true;
+      }
+    }
+    if (me.charKey === "hammer" && data.wasSmash) {
+      if (me.critActive || me.critReady) {
+        me.hammerCharge = 0;
+        me.critReady = false;
+        me.critActive = false;
+      } else {
+        const gain = data.wasFullCharge ? 30 : 10;
+        me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + gain);
+        if (me.hammerCharge >= HAMMER_MAX_CHARGE) {
+          me.critReady = true;
+        }
+      }
+      changed = true;
+    }
+    if (changed) {
+      sendMyState(me, true);
+    }
+  } else if (data.type === "hit") {
+    if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+    if (data.attackerRole === myRole) return;
+    if (data.targetRole && data.targetRole !== myRole) return;
+    if (isSameTeam(data.attackerRole, myRole)) return;
+
+    const me = players[myRole];
+    if (!me || me.stocks <= 0) return;
+    const spec = CHAR_SPECS[me.charKey] || CHAR_SPECS.fighter;
+
+    if (ws.readyState === WebSocket.OPEN && !data.fromClone) {
+      ws.send(JSON.stringify({
+        type: "hit_confirm",
+        attackerRole: data.attackerRole,
+        targetRole: myRole,
+        wasLight: !!data.wasLight,
+        wasSmash: !!data.wasSmash,
+        wasFullCharge: !!data.wasFullCharge
+      }));
+    }
+
+    if ((me.invincibleTimer || 0) > 0) {
+      return;
+    }
+
+    if (data.effect === "burn") {
+      if (me.shielding && !me.burnedOut) {
+        me.shieldHp -= (data.dmg || 5) * 2.0;
+        if (me.shieldHp <= 0) triggerBurnout(me);
+        sendMyState(me, true);
+        return;
+      }
+      burnDebuffs.push({
+        targetRole: myRole,
+        attackerRole: data.attackerRole,
+        ticksLeft: 5,
+        tickTimer: 0,
+        dmgPerTick: 5,
+        dir: data.dir || 1
+      });
+      return;
+    }
+
+    if (data.effect === "freeze") {
+      if (me.shielding && !me.burnedOut) {
+        me.shieldHp -= 15;
+        me.vx = (data.dir || 1) * 2.5;
+        if (me.shieldHp <= 0) triggerBurnout(me);
+        sendMyState(me, true);
+        return;
+      }
+      me.frozen = true;
+      me.stun = Math.max(me.stun, 60);
+      me.vx = 0;
+      me.shielding = false;
+      me.smashCharging = false;
+      sendMyState(me, true);
+      return;
+    }
+
+    applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62);
+  }
+};
+
+function trySummonClone(me) {
+  if (!me || me.charKey !== "summoner") return;
+  const now = performance.now();
+  if (clones[myRole] && clones[myRole].active) return;
+  if (now < (me.summonCooldownUntil || 0)) return;
+
+  const pickedChar = SUMMON_CANDIDATES[Math.floor(Math.random() * SUMMON_CANDIDATES.length)];
+  const spec = CHAR_SPECS[pickedChar] || CHAR_SPECS.fighter;
+  const ground = findSolidBeneath(me.x + me.w / 2, me.y + me.h);
+  const spawnX = Math.max(ground.x + 8, Math.min(ground.x + ground.w - 40, me.x + me.facing * 42));
+
+  const newClone = {
+    ownerRole: myRole,
+    active: true,
+    charKey: pickedChar,
+    x: spawnX,
+    y: me.y - 6,
+    w: 32,
+    h: 42,
+    vx: 0,
+    vy: -3,
+    facing: me.facing,
+    jumps: spec.maxJumps || 2,
+    percent: 0,
+    stun: 0,
+    atkTimer: 0,
+    cooldown: 35,
+    hasHit: false
+  };
+
+  clones[myRole] = newClone;
+  me.hasClone = true;
+  me.summonCooldownUntil = now + SUMMON_COOLDOWN_MS;
+  sendCloneSync(newClone);
+  sendMyState(me, true);
+}
+
+function tryEnhanceSelf(me) {
+  if (!me || me.charKey !== "enhancer") return;
+  const now = performance.now();
+  if (me.enhanceLevel >= ENHANCE_MAX_LEVEL) return;
+  if (now < me.enhanceCooldownUntil) return;
+
+  me.enhanceLevel += 1;
+  me.enhanceCooldownUntil = now + ENHANCE_COOLDOWN_MS;
+  sendMyState(me, true);
+}
+
+function cycleElementMagic(me) {
+  if (!me || me.charKey !== "elementalist") return;
+  const curIdx = MAGIC_MODES.indexOf(me.magicMode);
+  const nextIdx = (curIdx + 1) % MAGIC_MODES.length;
+  me.magicMode = MAGIC_MODES[nextIdx];
+  sendMyState(me, true);
+}
+
+function createBeamObject(me, mode) {
+  const beamW = 260;
+  const beamH = 26;
+  const bx = me.facing === 1 ? me.x + me.w + 6 : me.x - beamW - 6;
+  const by = me.y + 9;
+  return {
+    ownerRole: me.role,
+    mode,
+    x: bx,
+    y: by,
+    w: beamW,
+    h: beamH,
+    dir: me.facing,
+    life: 16,
+    maxLife: 16,
+    hasHitRoles: []
+  };
+}
+
+function castSelectedElementMagic(me) {
+  if (!me || me.charKey !== "elementalist") return;
+  if (me.cooldown > 0 || me.stun > 0 || me.shielding) return;
+
+  const mode = me.magicMode || "fire";
+  const info = MAGIC_INFO[mode];
+  const curMp = me.mp || 0;
+
+  if (mode === "magic") {
+    if (curMp < info.minCost) return;
+    const spentMp = curMp;
+    const power = calcMagicPowerFromMp(spentMp);
+    me.mp = 0;
+    me.cooldown = 28;
+    me.hasHit = false;
+
+    const ring = {
+      ownerRole: me.role,
+      cx: me.x + me.w / 2,
+      cy: me.y + me.h / 2,
+      maxRadius: power.maxRadius,
+      life: 24,
+      maxLife: 24,
+      spentMp: Math.floor(spentMp),
+      dmg: power.dmg,
+      basePower: power.basePower,
+      hasHitRoles: []
+    };
+    ringEffects.push(ring);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ring", ring }));
+    }
+    sendMyState(me, true);
+    return;
+  }
+
+  if (curMp < info.cost) return;
+
+  me.mp -= info.cost;
+  me.cooldown = 20;
+  me.hasHit = false;
+
+  if (mode === "heal") {
+    me.percent = Math.max(0, me.percent - 10);
+    beams.push({
+      ownerRole: me.role,
+      mode: "heal",
+      x: me.x - 16,
+      y: me.y - 12,
+      w: me.w + 32,
+      h: me.h + 24,
+      dir: me.facing,
+      life: 18,
+      maxLife: 18,
+      hasHitRoles: []
+    });
+  } else {
+    const beam = createBeamObject(me, mode);
+    beams.push(beam);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "beam", beam }));
+    }
+  }
+  sendMyState(me, true);
+}
+
+function triggerAttack(useSmash, chargeRatio = 0) {
+  if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+  const me = players[myRole];
+  if (!me || me.stocks <= 0) return;
+  const spec = CHAR_SPECS[me.charKey];
+
+  if (me.cooldown > 0 || me.stun > 0 || me.shielding) return;
+
+  me.hasHit = false;
+
+  if (useSmash) {
+    me.atkType = "smash";
+    me.atkTimer = 16;
+    me.cooldown = spec.smashCooldown;
+    me.smashChargeRatio = chargeRatio;
+    if (me.charKey === "hammer") {
+      me.critActive = !!(me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
+    } else {
+      me.critActive = false;
+    }
+  } else {
+    me.atkType = "light";
+    me.atkTimer = me.charKey === "fighter" ? 7 : 10;
+    me.cooldown = spec.lightCooldown;
+    me.critActive = false;
+
+    if (me.charKey === "mage") {
+      const laserLen = 460;
+      const laserH = 12;
+      const lx = me.facing === 1 ? me.x + me.w + 4 : me.x - laserLen - 4;
+      const ly = me.y + 16;
+      const laserBeam = {
+        ownerRole: myRole,
+        mode: "mage_laser",
+        x: lx,
+        y: ly,
+        w: laserLen,
+        h: laserH,
+        dir: me.facing,
+        life: 10,
+        maxLife: 10,
+        dmg: spec.lightDmg,
+        basePower: 5.0,
+        hasHitRoles: []
+      };
+
+      beams.push(laserBeam);
+
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "beam",
+          beam: laserBeam
+        }));
+      }
+    }
+  }
+  sendMyState(me, true);
+}
+
+const down = {};
+window.addEventListener("keydown", e => {
+  if (entryBlockedByHost || myRole === 0) return;
+
+  if ((phase === "waiting" || phase === "selecting") && !down[e.code]) {
+    if (e.code === "KeyA") setSelectedCharByIndex(selectedIdx - 1);
+    if (e.code === "KeyD") setSelectedCharByIndex(selectedIdx + 1);
+  }
+
+  if (phase === "playing" && !down[e.code]) {
+    const me = players[myRole];
+    if (!me || me.stocks <= 0) return;
+    const spec = CHAR_SPECS[me.charKey];
+
+    if (!me.shielding && me.stun <= 0) {
+      if (e.code === "KeyW" && me.jumps > 0) {
+        me.vy = spec.jumpPower;
+        me.jumps--;
+      }
+      if (e.code === "KeyS") {
+        me.dropThroughTimer = 12;
+      }
+      if (e.code === "KeyL") {
+        triggerAttack(false);
+      }
+      if (e.code === "KeyI") {
+        if (me.charKey === "elementalist") {
+          cycleElementMagic(me);
+        }
+      }
+      if (e.code === "KeyK") {
+        if (me.charKey === "enhancer") {
+          tryEnhanceSelf(me);
+        } else if (me.charKey === "elementalist") {
+          castSelectedElementMagic(me);
+        } else if (me.charKey === "summoner") {
+          trySummonClone(me);
+        } else if (me.cooldown <= 0 && !me.smashCharging && me.atkTimer <= 0) {
+          me.smashCharging = true;
+          me.smashChargeStart = Date.now();
+        }
+      }
+    }
+  }
+
+  down[e.code] = true;
+});
+
+window.addEventListener("keyup", e => {
+  down[e.code] = false;
+
+  if (e.code === "KeyK") {
+    if (entryBlockedByHost || myRole === 0 || phase !== "playing") return;
+    const me = players[myRole];
+    if (!me || me.charKey === "enhancer" || me.charKey === "elementalist" || me.charKey === "summoner" || !me.smashCharging) return;
+
+    me.smashCharging = false;
+    const chargeRatio = Math.min((Date.now() - me.smashChargeStart) / 1500, 1.0);
+    triggerAttack(true, chargeRatio);
+  }
+});
+
+function getMeleeHitbox(p) {
+  if (p.atkTimer <= 0 || !p.atkType) return null;
+  if (p.charKey === "mage" && p.atkType === "light") return null;
+
+  const isSmash = p.atkType === "smash";
+  const isHammer = p.charKey === "hammer";
+  const isHammerCrit = isHammer && isSmash && p.critActive;
+
+  let w = isSmash ? 56 : 40;
+  let h = isSmash ? 42 : 28;
+
+  if (isHammer && isSmash) {
+    w = isHammerCrit ? 84 : 70;
+    h = isHammerCrit ? 50 : 42;
+  }
+
+  return {
+    x: p.facing === 1 ? p.x + p.w : p.x - w,
+    y: p.y + (isHammerCrit ? -3 : (isSmash ? 2 : 8)),
+    w,
+    h,
+    isSmash
+  };
+}
+
+function sendHitToTarget(targetRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "hit",
+      attackerRole: myRole,
+      targetRole,
+      dmg,
+      basePower,
+      dir,
+      effect,
+      upAngleMult,
+      ...extra
+    }));
+  }
+}
+
+function sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "clone_hit",
+      attackerRole: myRole,
+      ownerRole,
+      dmg,
+      basePower,
+      dir,
+      effect,
+      upAngleMult
+    }));
+  }
+}
+
+function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null) {
+  for (const ownerStr of Object.keys(clones)) {
+    const ownerRole = Number(ownerStr);
+    if (ownerRole === myRole || isSameTeam(myRole, ownerRole)) continue;
+    if (hitOwnerList && hitOwnerList.includes(ownerRole)) continue;
+    const cl = clones[ownerRole];
+    if (!cl || !cl.active) continue;
+
+    const hit = box.x < cl.x + cl.w && box.x + box.w > cl.x &&
+                box.y < cl.y + cl.h && box.y + box.h > cl.y;
+    if (hit) {
+      if (hitOwnerList) hitOwnerList.push(ownerRole);
+      sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect, upAngleMult);
+      return true;
+    }
+  }
+  return false;
+}
+
+function sendMyState(me, force = false) {
+  if (ws.readyState !== WebSocket.OPEN || entryBlockedByHost || !me) return;
+  const now = performance.now();
+  if (!force && now - lastStateSentAt < STATE_SEND_INTERVAL_MS) return;
+  lastStateSentAt = now;
+
+  ws.send(JSON.stringify({
+    type: "state",
+    player: {
+      role: me.role,
+      active: me.active,
+      x: me.x, y: me.y, facing: me.facing,
+      percent: me.percent, stocks: me.stocks,
+      atkType: me.atkType, atkTimer: me.atkTimer,
+      enhanceLevel: me.enhanceLevel,
+      hammerCharge: me.hammerCharge,
+      critReady: me.critReady,
+      critActive: me.critActive,
+      guardianHits: me.guardianHits,
+      invincibleTimer: me.invincibleTimer,
+      hasClone: me.hasClone,
+      mp: me.mp, magicMode: me.magicMode, frozen: me.frozen,
+      stun: me.stun, charKey: me.charKey,
+      shielding: me.shielding, shieldHp: me.shieldHp,
+      burnedOut: me.burnedOut
+    }
+  }));
+}
+
+function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms) {
+  const st = getCurrentStage();
+  const prevBottom = prevY + entity.h;
+  const prevTop = prevY;
+  const nextBottom = entity.y + entity.h;
+
+  if (!canDropPlatforms && entity.vy >= 0) {
+    for (const plat of st.platforms) {
+      if (prevBottom <= plat.y + 8 && nextBottom >= plat.y &&
+          entity.x + entity.w > plat.x && entity.x < plat.x + plat.w) {
+        entity.y = plat.y - entity.h;
+        entity.vy = 0;
+        entity.jumps = maxJumps;
+        break;
+      }
+    }
+  }
+
+  for (const solid of st.solids) {
+    const overlapX = entity.x + entity.w > solid.x && entity.x < solid.x + solid.w;
+    const overlapY = entity.y + entity.h > solid.y && entity.y < solid.y + solid.h;
+    if (overlapX && overlapY) {
+      if (entity.vy >= 0 && prevBottom <= solid.y + 10) {
+        entity.y = solid.y - entity.h;
+        entity.vy = 0;
+        entity.jumps = maxJumps;
+      } else if (entity.vy < 0 && prevTop >= solid.y + solid.h - 10) {
+        entity.y = solid.y + solid.h;
+        entity.vy = 0;
+      } else if (prevX + entity.w <= solid.x + 10) {
+        entity.x = solid.x - entity.w;
+        entity.vx = 0;
+      } else if (prevX >= solid.x + solid.w - 10) {
+        entity.x = solid.x + solid.w;
+        entity.vx = 0;
+      }
+    }
+  }
+}
+
+function updateMyClone(dtScale) {
+  if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+  const cl = clones[myRole];
+  const me = players[myRole];
+  if (!cl || !cl.active) return;
+
+  if (!me || me.stocks <= 0 || me.charKey !== "summoner") {
+    delete clones[myRole];
+    if (me) me.hasClone = false;
+    sendCloneSync(null);
+    return;
+  }
+
+  const spec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
+  const ground = findSolidBeneath(cl.x + cl.w / 2, cl.y + cl.h);
+
+  let nearestTarget = null;
+  let nearestDist = Infinity;
+  for (const r of activeRoles) {
+    if (r === myRole || isSameTeam(myRole, r)) continue;
+    const t = players[r];
+    if (!t || !t.active || t.stocks <= 0) continue;
+    const d = Math.hypot((t.x + t.w / 2) - (cl.x + cl.w / 2), (t.y + t.h / 2) - (cl.y + cl.h / 2));
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearestTarget = t;
+    }
+  }
+
+  if (cl.stun > 0) {
+    cl.stun = Math.max(0, cl.stun - dtScale);
+  } else if (nearestTarget) {
+    const dx = (nearestTarget.x + nearestTarget.w / 2) - (cl.x + cl.w / 2);
+    const dy = (nearestTarget.y + nearestTarget.h / 2) - (cl.y + cl.h / 2);
+    cl.facing = dx >= 0 ? 1 : -1;
+
+    const desiredRange = cl.charKey === "mage" ? 260 : 46;
+    if (Math.abs(dx) > desiredRange) {
+      cl.vx += cl.facing * spec.moveAcc * 0.55 * dtScale;
+    }
+
+    const nearLeftEdge = cl.x < ground.x + 28 && cl.vx < 0;
+    const nearRightEdge = cl.x + cl.w > ground.x + ground.w - 28 && cl.vx > 0;
+    if ((nearLeftEdge || nearRightEdge || (dy < -75 && Math.abs(dx) < 120 && Math.random() < 0.04)) && cl.jumps > 0 && cl.vy >= -1) {
+      cl.vy = spec.jumpPower;
+      cl.jumps--;
+    }
+
+    const inAttackRange = cl.charKey === "mage"
+      ? (Math.abs(dx) <= 360 && Math.abs(dy) <= 36)
+      : (Math.abs(dx) <= 46 && Math.abs(dy) <= 36);
+
+    if (inAttackRange && cl.cooldown <= 0 && cl.atkTimer <= 0 && Math.random() < 0.14) {
+      cl.atkTimer = cl.charKey === "fighter" ? 7 : 10;
+      cl.cooldown = spec.lightCooldown + 28;
+      cl.hasHit = false;
+
+      if (cl.charKey === "mage") {
+        const laserLen = 360;
+        const laserH = 10;
+        const lx = cl.facing === 1 ? cl.x + cl.w + 4 : cl.x - laserLen - 4;
+        const ly = cl.y + 15;
+        const laserBeam = {
+          ownerRole: myRole,
+          fromClone: true,
+          mode: "mage_laser",
+          x: lx,
+          y: ly,
+          w: laserLen,
+          h: laserH,
+          dir: cl.facing,
+          life: 9,
+          maxLife: 9,
+          dmg: Math.max(4, spec.lightDmg - 2),
+          basePower: 3.5,
+          hasHitRoles: []
+        };
+        beams.push(laserBeam);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "beam", beam: laserBeam }));
+        }
+      }
+    }
+  }
+
+  const damping = cl.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(spec.friction, dtScale);
+  cl.vx *= damping;
+  cl.vy += 0.56 * dtScale;
+
+  const prevX = cl.x;
+  const prevY = cl.y;
+  cl.x += cl.vx * dtScale;
+  cl.y += cl.vy * dtScale;
+
+  resolveStageCollisions(cl, prevX, prevY, spec.maxJumps || 2, false);
+
+  if (cl.atkTimer > 0) {
+    cl.atkTimer = Math.max(0, cl.atkTimer - dtScale);
+    if (cl.atkTimer === 0) {
+      cl.hasHit = false;
+    }
+  }
+  if (cl.cooldown > 0) {
+    cl.cooldown = Math.max(0, cl.cooldown - dtScale);
+  }
+
+  if (cl.charKey !== "mage" && cl.atkTimer > 0 && !cl.hasHit) {
+    const hbW = 38;
+    const hbH = 26;
+    const hb = {
+      x: cl.facing === 1 ? cl.x + cl.w : cl.x - hbW,
+      y: cl.y + 8,
+      w: hbW,
+      h: hbH
+    };
+    for (const r of activeRoles) {
+      if (r === myRole || isSameTeam(myRole, r)) continue;
+      const target = players[r];
+      if (!target || !target.active || target.stocks <= 0) continue;
+
+      const hit = hb.x < target.x + target.w && hb.x + hb.w > target.x &&
+                  hb.y < target.y + target.h && hb.y + hb.h > target.y;
+      if (hit) {
+        cl.hasHit = true;
+        sendHitToTarget(target.role, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, { fromClone: true });
+        break;
+      }
+    }
+    if (!cl.hasHit) {
+      if (checkHitEnemyClonesByBox(hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing)) {
+        cl.hasHit = true;
+      }
+    }
+  }
+
+  if (cl.percent >= SUMMON_CLONE_MAX_PERCENT || cl.x < -160 || cl.x > canvas.width + 160 || cl.y > canvas.height + 160) {
+    delete clones[myRole];
+    me.hasClone = false;
+    sendCloneSync(null);
+    sendMyState(me, true);
+    return;
+  }
+
+  sendCloneSync(cl);
+}
+
+function updateBurnDebuffs(dtScale) {
+  if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+  const me = players[myRole];
+  if (!me || me.stocks <= 0) return;
+
+  for (let i = burnDebuffs.length - 1; i >= 0; i--) {
+    const b = burnDebuffs[i];
+    if (b.targetRole !== myRole) continue;
+    b.tickTimer += dtScale;
+    if (b.tickTimer >= 60) {
+      b.tickTimer -= 60;
+      if ((me.invincibleTimer || 0) <= 0) {
+        me.percent += b.dmgPerTick;
+        sendMyState(me, true);
+      }
+      b.ticksLeft -= 1;
+      if (b.ticksLeft <= 0) {
+        burnDebuffs.splice(i, 1);
+      }
+    }
+  }
+}
+
+function updateBeams(dtScale) {
+  for (let i = beams.length - 1; i >= 0; i--) {
+    const bm = beams[i];
+    bm.life -= dtScale;
+
+    if (phase === "playing" && !entryBlockedByHost && myRole !== 0 && bm.ownerRole === myRole && bm.mode !== "heal") {
+      for (const r of activeRoles) {
+        if (r === myRole || isSameTeam(myRole, r)) continue;
+        if (bm.hasHitRoles.includes(r)) continue;
+        const target = players[r];
+        if (!target || !target.active || target.stocks <= 0) continue;
+
+        const hit = bm.x < target.x + target.w && bm.x + bm.w > target.x &&
+                    bm.y < target.y + target.h && bm.y + bm.h > target.y;
+        if (hit) {
+          bm.hasHitRoles.push(r);
+          if (bm.mode === "fire") {
+            sendHitToTarget(target.role, 0, 2.5, bm.dir, "burn");
+          } else if (bm.mode === "ice") {
+            sendHitToTarget(target.role, 4, 0, bm.dir, "freeze");
+          } else if (bm.mode === "mage_laser") {
+            sendHitToTarget(target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, {
+              wasLight: true,
+              fromClone: !!bm.fromClone
+            });
+          }
+        }
+      }
+      if (!bm.hasHitCloneOwners) bm.hasHitCloneOwners = [];
+      const bDmg = bm.mode === "fire" ? 15 : (bm.mode === "ice" ? 4 : (bm.dmg || 8));
+      const bKb = bm.mode === "fire" ? 2.5 : (bm.mode === "ice" ? 0 : (bm.basePower || 5.0));
+      checkHitEnemyClonesByBox(bm, bDmg, bKb, bm.dir, bm.mode === "ice" ? "freeze" : null, 0.55, bm.hasHitCloneOwners);
+    }
+
+    if (bm.life <= 0) {
+      beams.splice(i, 1);
+    }
+  }
+}
+
+function updateRings(dtScale) {
+  for (let i = ringEffects.length - 1; i >= 0; i--) {
+    const rg = ringEffects[i];
+    rg.life -= dtScale;
+    const progress = 1 - Math.max(0, rg.life / rg.maxLife);
+    const curRadius = rg.maxRadius * Math.min(1, progress * 1.35);
+
+    if (phase === "playing" && !entryBlockedByHost && myRole !== 0 && rg.ownerRole === myRole) {
+      for (const r of activeRoles) {
+        if (r === myRole || isSameTeam(myRole, r)) continue;
+        if (rg.hasHitRoles.includes(r)) continue;
+        const target = players[r];
+        if (!target || !target.active || target.stocks <= 0) continue;
+
+        const tx = target.x + target.w / 2;
+        const ty = target.y + target.h / 2;
+        const dx = tx - rg.cx;
+        const dy = ty - rg.cy;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist <= curRadius + 24) {
+          rg.hasHitRoles.push(r);
+          const dir = dx >= 0 ? 1 : -1;
+          sendHitToTarget(target.role, rg.dmg, rg.basePower, dir, null, 0.65);
+        }
+      }
+
+      if (!rg.hasHitCloneOwners) rg.hasHitCloneOwners = [];
+      for (const ownerStr of Object.keys(clones)) {
+        const ownerRole = Number(ownerStr);
+        if (ownerRole === myRole || isSameTeam(myRole, ownerRole)) continue;
+        if (rg.hasHitCloneOwners.includes(ownerRole)) continue;
+        const cl = clones[ownerRole];
+        if (!cl || !cl.active) continue;
+        const dx = (cl.x + cl.w / 2) - rg.cx;
+        const dy = (cl.y + cl.h / 2) - rg.cy;
+        if (Math.hypot(dx, dy) <= curRadius + 24) {
+          rg.hasHitCloneOwners.push(ownerRole);
+          sendHitToEnemyClone(ownerRole, rg.dmg, rg.basePower, dx >= 0 ? 1 : -1, null, 0.65);
+        }
+      }
+    }
+
+    if (rg.life <= 0) {
+      ringEffects.splice(i, 1);
+    }
+  }
+}
+
+function updateMyPlayer(dtScale) {
+  if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+  const me = players[myRole];
+  if (!me || me.stocks <= 0) return;
+  const spec = CHAR_SPECS[me.charKey];
+  const maxJumps = getMaxJumpsForPlayer(me);
+
+  if ((me.invincibleTimer || 0) > 0) {
+    me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
+  }
+
+  if (me.charKey === "elementalist") {
+    me.mp = Math.min(MAX_MP, (me.mp ?? MAX_MP) + (1 / 60) * dtScale);
+  }
+
+  if (down["KeyJ"] && !me.burnedOut && me.stun <= 0 && me.atkTimer <= 0 && !me.smashCharging) {
+    me.shielding = true;
+    me.shieldHp -= spec.shieldDrain * dtScale;
+    if (me.shieldHp <= 0) {
+      triggerBurnout(me);
+    }
+  } else {
+    me.shielding = false;
+    if (me.shieldHp < MAX_SHIELD && !me.burnedOut) {
+      me.shieldHp = Math.min(MAX_SHIELD, me.shieldHp + 0.35 * dtScale);
+    }
+  }
+
+  const canMove = me.stun <= 0 && !me.shielding && !me.smashCharging;
+  const acc = canMove ? getEffectiveMoveAcc(me, spec) : 0;
+  if (canMove && down["KeyA"]) { me.vx -= acc * dtScale; me.facing = -1; }
+  if (canMove && down["KeyD"]) { me.vx += acc * dtScale; me.facing = 1; }
+  if (canMove && down["KeyS"] && me.dropThroughTimer <= 0) { me.dropThroughTimer = 8; }
+
+  const damping = me.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(spec.friction, dtScale);
+  me.vx *= damping;
+  me.vy += 0.56 * dtScale;
+
+  const prevX = me.x;
+  const prevY = me.y;
+  me.x += me.vx * dtScale;
+  me.y += me.vy * dtScale;
+
+  if (me.dropThroughTimer > 0) {
+    me.dropThroughTimer = Math.max(0, me.dropThroughTimer - dtScale);
+  }
+
+  const canDrop = (canMove && down["KeyS"]) || me.dropThroughTimer > 0;
+  resolveStageCollisions(me, prevX, prevY, maxJumps, canDrop);
+
+  if (me.atkTimer > 0) {
+    me.atkTimer = Math.max(0, me.atkTimer - dtScale);
+    if (me.atkTimer === 0) {
+      me.atkType = null;
+      me.hasHit = false;
+      me.critActive = false;
+    }
+  }
+  if (me.cooldown > 0) {
+    me.cooldown = Math.max(0, me.cooldown - dtScale);
+  }
+  if (me.stun > 0) {
+    me.stun = Math.max(0, me.stun - dtScale);
+    if (me.stun === 0) {
+      me.frozen = false;
+      if (me.burnedOut) {
+        me.burnedOut = false;
+        me.shieldHp = 60;
+      }
+    }
+  }
+
+  const hb = getMeleeHitbox(me);
+  const inActiveFrames = hb && (
+    (hb.isSmash && me.atkTimer >= 6.5 && me.atkTimer <= 11.5) ||
+    (!hb.isSmash && me.atkTimer >= (me.charKey === "fighter" ? 2.5 : 5.5) && me.atkTimer <= (me.charKey === "fighter" ? 6.5 : 8.5))
+  );
+
+  if (inActiveFrames && !me.hasHit) {
+    for (const r of activeRoles) {
+      if (r === myRole) continue;
+      if (isSameTeam(myRole, r)) continue;
+      const target = players[r];
+      if (!target || !target.active || target.stocks <= 0) continue;
+
+      const hit = hb.x < target.x + target.w && hb.x + hb.w > target.x &&
+                  hb.y < target.y + target.h && hb.y + hb.h > target.y;
+      if (hit) {
+        me.hasHit = true;
+        if (!hb.isSmash && me.charKey === "elementalist") {
+          me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
+        }
+        if (hb.isSmash) {
+          const ratio = me.smashChargeRatio || 0;
+          const isFullCharge = ratio >= 0.99;
+          const dmgMult = 1 + ratio * 0.50;
+          const kbMult = 1 + ratio * 0.45;
+          let finalDmg = Math.floor(spec.smashDmg * dmgMult);
+          let finalKb = 14.5 * kbMult;
+
+          if (me.charKey === "hammer") {
+            if (me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE) {
+              finalDmg = Math.round(finalDmg * 2.5);
+              finalKb = finalKb * 1.45;
+              me.hammerCharge = 0;
+              me.critReady = false;
+              me.critActive = false;
+            } else {
+              const gain = isFullCharge ? 30 : 10;
+              me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + gain);
+              if (me.hammerCharge >= HAMMER_MAX_CHARGE) {
+                me.critReady = true;
+              }
+            }
+          }
+
+          sendHitToTarget(target.role, finalDmg, finalKb, me.facing, null, 0.62, {
+            wasSmash: true,
+            wasFullCharge: isFullCharge
+          });
+          me.smashChargeRatio = 0;
+          sendMyState(me, true);
+        } else {
+          const lightStats = getEffectiveLightStats(me, spec);
+          if (me.charKey === "guardian" && (me.invincibleTimer || 0) <= 0) {
+            me.guardianHits = (me.guardianHits || 0) + 1;
+            if (me.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
+              me.guardianHits = 0;
+              me.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
+            }
+            sendMyState(me, true);
+          }
+          sendHitToTarget(target.role, lightStats.dmg, lightStats.basePower, me.facing, null, 0.62, {
+            wasLight: true,
+            wasSmash: false
+          });
+        }
+        break;
+      }
+    }
+
+    if (!me.hasHit) {
+      if (hb.isSmash) {
+        const ratio = me.smashChargeRatio || 0;
+        let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
+        let finalKb = 14.5 * (1 + ratio * 0.45);
+        if (checkHitEnemyClonesByBox(hb, finalDmg, finalKb, me.facing)) {
+          me.hasHit = true;
+          me.smashChargeRatio = 0;
+          sendMyState(me, true);
+        }
+      } else {
+        const lightStats = getEffectiveLightStats(me, spec);
+        if (checkHitEnemyClonesByBox(hb, lightStats.dmg, lightStats.basePower, me.facing)) {
+          me.hasHit = true;
+        }
+      }
+    }
+  }
+
+  if (me.x < -160 || me.x > canvas.width + 160 || me.y > canvas.height + 160) {
+    me.stocks = Math.max(0, me.stocks - 1);
+    me.percent = 0;
+    me.vx = 0;
+    me.vy = 0;
+    me.stun = 0;
+    me.frozen = false;
+    me.jumps = maxJumps;
+    me.shielding = false;
+    me.burnedOut = false;
+    me.shieldHp = MAX_SHIELD;
+    me.smashCharging = false;
+    me.hasHit = false;
+    me.enhanceLevel = 0;
+    me.enhanceCooldownUntil = 0;
+    me.hammerCharge = 0;
+    me.critReady = false;
+    me.critActive = false;
+    me.guardianHits = 0;
+    me.invincibleTimer = 0;
+    if (clones[myRole]) {
+      delete clones[myRole];
+      me.hasClone = false;
+      sendCloneSync(null);
+    }
+    me.mp = MAX_MP;
+    burnDebuffs = burnDebuffs.filter(b => b.targetRole !== myRole);
+
+    if (me.stocks > 0) {
+      const sp = getSpawnPoint(myRole);
+      me.x = sp.x;
+      me.y = sp.y;
+      me.facing = sp.facing;
+    }
+
+    sendMyState(me, true);
+    checkMatchEndCondition();
+    return;
+  }
+
+  sendMyState(me, false);
+}
+
+function updateProjectiles(dtScale) {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const pr = projectiles[i];
+    pr.x += pr.vx * dtScale;
+    pr.y += pr.vy * dtScale;
+    pr.life -= dtScale;
+
+    if (phase === "playing" && !entryBlockedByHost && myRole !== 0 && pr.ownerRole === myRole) {
+      for (const r of activeRoles) {
+        if (r === myRole || isSameTeam(myRole, r)) continue;
+        const target = players[r];
+        if (!target || !target.active || target.stocks <= 0) continue;
+
+        const hit = pr.x < target.x + target.w && pr.x + 14 > target.x &&
+                    pr.y < target.y + target.h && pr.y + 14 > target.y;
+        if (hit) {
+          sendHitToTarget(target.role, pr.dmg, pr.basePower, pr.dir);
+          projectiles.splice(i, 1);
+          break;
+        }
+      }
+      if (!projectiles[i]) continue;
+
+      if (checkHitEnemyClonesByBox({ x: pr.x, y: pr.y, w: 14, h: 14 }, pr.dmg, pr.basePower, pr.dir)) {
+        projectiles.splice(i, 1);
+        continue;
+      }
+    }
+
+    if (pr.life <= 0 || pr.x < -60 || pr.x > canvas.width + 60) {
+      projectiles.splice(i, 1);
+    }
+  }
+}
+
+function renderStocks(stocks, x, y, color) {
+  for (let i = 0; i < MAX_STOCK; i++) {
+    ctx.beginPath();
+    ctx.arc(x + i * 18, y, 6.5, 0, Math.PI * 2);
+    if (i < stocks) {
+      ctx.fillStyle = color;
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = "#64748b";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+}
+
+function loop(now) {
+  const dtScale = Math.min((now - lastFrameTime) / (1000 / 60), 2.5);
+  lastFrameTime = now;
+
+  const st = getCurrentStage();
+  ctx.fillStyle = st.bgColor;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  updateMyPlayer(dtScale);
+  updateMyClone(dtScale);
+  updateBurnDebuffs(dtScale);
+  updateBeams(dtScale);
+  updateRings(dtScale);
+  updateProjectiles(dtScale);
+
+  for (const solid of st.solids) {
+    ctx.fillStyle = st.groundColor;
+    ctx.fillRect(solid.x, solid.y, solid.w, solid.h);
+    ctx.strokeStyle = st.groundBorder;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(solid.x, solid.y, solid.w, solid.h);
+  }
+
+  for (const plat of st.platforms) {
+    ctx.fillStyle = st.platColor;
+    ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
+    ctx.setLineDash([]);
+  }
+
+  for (let r = 1; r <= MAX_PLAYERS; r++) {
+    const p = players[r];
+    if (!p.active || p.stocks <= 0) continue;
+    const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
+    const pColor = PLAYER_COLORS[r] || spec.color;
+    const isInv = (p.invincibleTimer || 0) > 0;
+
+    if (isInv) {
+      ctx.fillStyle = Math.floor(Date.now() / 60) % 2 === 0 ? "#fde047" : "#38bdf8";
+    } else if (p.frozen) {
+      ctx.fillStyle = "#7dd3fc";
+    } else if (p.burnedOut && Math.floor(Date.now() / 80) % 2 === 0) {
+      ctx.fillStyle = "#94a3b8";
+    } else {
+      ctx.fillStyle = pColor;
+    }
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+
+    if (isInv) {
+      ctx.strokeStyle = "#fef08a";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = "#fef08a";
+      ctx.fillText(`🛡️ 無敵 ${(p.invincibleTimer / 60).toFixed(1)}s`, p.x - 22, p.y - 24);
+    } else if (p.charKey === "guardian") {
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = "#7dd3fc";
+      ctx.fillText(`Lヒット ${p.guardianHits || 0}/${GUARDIAN_INVINCIBLE_HITS}`, p.x - 22, p.y - 24);
+    }
+
+    if (p.charKey === "summoner") {
+      const remMs = Math.max(0, (p.summonCooldownUntil || 0) - now);
+      const activeCl = clones[r];
+      ctx.font = "bold 11px sans-serif";
+      if (activeCl && activeCl.active) {
+        const cName = (CHAR_SPECS[activeCl.charKey] || CHAR_SPECS.fighter).name;
+        ctx.fillStyle = "#2dd4bf";
+        ctx.fillText(`👥召喚中:${cName}(${Math.floor(activeCl.percent)}%)`, p.x - 32, p.y - 24);
+      } else if (r === myRole && remMs > 0) {
+        ctx.fillStyle = "#cbd5e1";
+        ctx.fillText(`👥召喚CT ${(remMs / 1000).toFixed(1)}s`, p.x - 24, p.y - 24);
+      } else {
+        ctx.fillStyle = "#5eead4";
+        ctx.fillText(`👥K召喚可`, p.x - 16, p.y - 24);
+      }
+    }
+
+    if (p.frozen) {
+      ctx.strokeStyle = "#bae6fd";
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = "#bae6fd";
+      ctx.fillText("❄️ 凍結中", p.x - 14, p.y - 36);
+    }
+
+    if (p.charKey === "enhancer") {
+      const lv = p.enhanceLevel || 0;
+      if (lv > 0) {
+        ctx.strokeStyle = "#34d399";
+        ctx.lineWidth = 1.5 + lv * 0.5;
+        ctx.strokeRect(p.x - 3 - lv, p.y - 3 - lv, p.w + 6 + lv * 2, p.h + 6 + lv * 2);
+      }
+
+      const remMs = Math.max(0, (p.enhanceCooldownUntil || 0) - now);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = lv >= ENHANCE_MAX_LEVEL ? "#34d399" : (remMs > 0 ? "#cbd5e1" : "#fbbf24");
+      const ctText = lv >= ENHANCE_MAX_LEVEL
+        ? `Lv.${lv} MAX`
+        : (remMs > 0 ? `Lv.${lv} (CT ${(remMs / 1000).toFixed(1)}s)` : `Lv.${lv} (K強化可)`);
+      ctx.fillText(ctText, p.x - 24, p.y - 24);
+    }
+
+    if (p.charKey === "elementalist") {
+      const mInfo = MAGIC_INFO[p.magicMode] || MAGIC_INFO.fire;
+      const curMp = Math.floor(p.mp ?? MAX_MP);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = mInfo.color;
+      ctx.fillText(`[${mInfo.label}:${mInfo.cost}] MP:${curMp}`, p.x - 26, p.y - 22);
+    }
+
+    if (p.charKey === "hammer") {
+      const ch = p.hammerCharge || 0;
+      const isCrit = !!(p.critReady || p.critActive || ch >= HAMMER_MAX_CHARGE);
+      if (isCrit) {
+        ctx.strokeStyle = "#fde047";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
+      }
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
+      const label = isCrit ? `⚡会心MAX (${ch}/${HAMMER_MAX_CHARGE})` : `🔨蓄積 ${ch}/${HAMMER_MAX_CHARGE}`;
+      ctx.fillText(label, p.x - 28, p.y - 22);
+    }
+
+    if (p.smashCharging) {
+      const charge = Math.min((Date.now() - p.smashChargeStart) / 1500, 1);
+      const gaugeWidth = 60;
+      const gaugeHeight = 8;
+      const gaugeX = p.x + p.w / 2 - gaugeWidth / 2;
+      const gaugeY = p.y - 34;
+
+      ctx.fillStyle = "#222";
+      ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+
+      ctx.fillStyle = charge >= 1 ? "#ff0000" : "#fbbf24";
+      ctx.fillRect(gaugeX, gaugeY, gaugeWidth * charge, gaugeHeight);
+
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+
+      if (charge >= 1) {
+        ctx.font = "bold 12px sans-serif";
+        ctx.fillStyle = "#ff4444";
+        ctx.fillText("MAX!", gaugeX + 12, gaugeY - 5);
+      }
+    }
+
+    ctx.fillStyle = "#ffffff";
+    const eyeX = p.facing === 1 ? p.x + p.w - 10 : p.x + 4;
+    ctx.fillRect(eyeX, p.y + 10, 6, 6);
+
+    if (p.shielding && !p.burnedOut) {
+      const ratio = Math.max(0.25, p.shieldHp / MAX_SHIELD);
+      const radius = 34 * ratio + 10;
+      ctx.beginPath();
+      ctx.arc(p.x + p.w / 2, p.y + p.h / 2, radius, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
+      ctx.fill();
+      ctx.strokeStyle = "#7dd3fc";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(p.x - 3, p.y + p.h + 5, 40, 5);
+      ctx.fillStyle = ratio > 0.3 ? "#38bdf8" : "#f97316";
+      ctx.fillRect(p.x - 3, p.y + p.h + 5, 40 * (p.shieldHp / MAX_SHIELD), 5);
+    }
+
+    if (p.burnedOut) {
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillStyle = "#fbbf24";
+      ctx.fillText("💫 BURNOUT!", p.x - 18, p.y - 22);
+    }
+
+    const teamTag = gameMode === "team2v2" ? `[${getTeamOfRole(r)}]` : "";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillText(`${r}P${teamTag}(${spec.name})`, p.x - 16, p.y - 8);
+
+    const hb = getMeleeHitbox(p);
+    if (hb) {
+      const isCritHit = p.charKey === "hammer" && hb.isSmash && p.critActive;
+      ctx.fillStyle = isCritHit
+        ? "rgba(253, 224, 71, 0.85)"
+        : (hb.isSmash ? "rgba(251, 146, 60, 0.72)" : "rgba(254, 240, 138, 0.65)");
+      ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
+      if (isCritHit) {
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
+      }
+    }
+  }
+
+  for (const ownerStr of Object.keys(clones)) {
+    const ownerRole = Number(ownerStr);
+    const cl = clones[ownerRole];
+    if (!cl || !cl.active) continue;
+    const cSpec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
+
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = cSpec.color;
+    ctx.fillRect(cl.x, cl.y, cl.w, cl.h);
+    ctx.strokeStyle = "#2dd4bf";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(cl.x - 1, cl.y - 1, cl.w + 2, cl.h + 2);
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "#ffffff";
+    const cEyeX = cl.facing === 1 ? cl.x + cl.w - 9 : cl.x + 4;
+    ctx.fillRect(cEyeX, cl.y + 9, 5, 5);
+
+    ctx.font = "bold 11px sans-serif";
+    ctx.fillStyle = "#5eead4";
+    ctx.fillText(`${ownerRole}Pクローン(${cSpec.name}) ${Math.floor(cl.percent)}/100%`, cl.x - 32, cl.y - 8);
+
+    if (cl.charKey !== "mage" && cl.atkTimer > 0) {
+      const hbW = 38;
+      const hbH = 26;
+      const hbX = cl.facing === 1 ? cl.x + cl.w : cl.x - hbW;
+      const hbY = cl.y + 8;
+      ctx.fillStyle = "rgba(94, 234, 212, 0.65)";
+      ctx.fillRect(hbX, hbY, hbW, hbH);
+    }
+    ctx.restore();
+  }
+
+  for (const rg of ringEffects) {
+    const alpha = Math.max(0.1, rg.life / rg.maxLife);
+    const progress = 1 - Math.max(0, rg.life / rg.maxLife);
+    const curRadius = rg.maxRadius * Math.min(1, progress * 1.35);
+
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.45;
+    const grad = ctx.createRadialGradient(rg.cx, rg.cy, curRadius * 0.15, rg.cx, rg.cy, curRadius);
+    grad.addColorStop(0, "rgba(254, 249, 195, 0.95)");
+    grad.addColorStop(0.6, "rgba(251, 191, 36, 0.7)");
+    grad.addColorStop(1, "rgba(249, 115, 22, 0.1)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(rg.cx, rg.cy, curRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = "#fef08a";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(rg.cx, rg.cy, curRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#f97316";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(rg.cx, rg.cy, curRadius * 0.72, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.font = "bold 14px sans-serif";
+    ctx.fillStyle = "#fef08a";
+    ctx.textAlign = "center";
+    ctx.fillText(`💥 マダンテ (${rg.spentMp}MP / ${rg.dmg}%)`, rg.cx, rg.cy - curRadius - 8);
+    ctx.restore();
+  }
+
+  for (const bm of beams) {
+    const alpha = Math.max(0.15, bm.life / bm.maxLife);
+    const info = MAGIC_INFO[bm.mode] || MAGIC_INFO.fire;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (bm.mode === "mage_laser") {
+      ctx.fillStyle = "rgba(192, 132, 252, 0.78)";
+      ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
+      ctx.fillStyle = "rgba(240, 171, 252, 0.95)";
+      ctx.fillRect(bm.x, bm.y + 3, bm.w, bm.h - 6);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bm.x, bm.y, bm.w, bm.h);
+    } else if (bm.mode === "heal") {
+      ctx.fillStyle = "rgba(74, 222, 128, 0.45)";
+      ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
+      ctx.strokeStyle = "#4ade80";
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(bm.x, bm.y, bm.w, bm.h);
+    } else {
+      ctx.fillStyle = info.beamColor;
+      ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bm.x, bm.y, bm.w, bm.h);
+    }
+    ctx.restore();
+  }
+
+  projectiles.forEach(pr => {
+    ctx.fillStyle = "#e879f9";
+    ctx.beginPath();
+    ctx.arc(pr.x + 7, pr.y + 7, 8, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  if (entryBlockedByHost) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "bold 30px sans-serif";
+    ctx.fillStyle = "#fbbf24";
+    ctx.textAlign = "center";
+    ctx.fillText("🔒 ホスト（実行側）が入室するまで入れません", canvas.width / 2, 195);
+    ctx.font = "17px sans-serif";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillText("ホスト側が部屋に入ると自動的に入室・参加できるようになります", canvas.width / 2, 238);
+    ctx.textAlign = "left";
+  } else if (phase === "waiting") {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.65)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "bold 30px sans-serif";
+    ctx.fillStyle = "#fbbf24";
+    ctx.textAlign = "center";
+    ctx.fillText(`現在の入室人数：${activeRoles.length} / 4 人（マップ：${st.name}）`, canvas.width / 2, 175);
+    ctx.font = "18px sans-serif";
+    ctx.fillStyle = "#f8fafc";
+    const listStr = activeRoles.length > 0 ? activeRoles.map(r => `${r}P`).join("・") : "なし";
+    ctx.fillText(`参加メンバー：${listStr}`, canvas.width / 2, 212);
+    ctx.font = "16px sans-serif";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillText("2人以上そろったら上の「▶ 試合開始」ボタンで2〜4人のいつでも始められます", canvas.width / 2, 250);
+    ctx.textAlign = "left";
+  }
+
+  if (phase === "selecting") {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.65)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "bold 36px sans-serif";
+    ctx.fillStyle = "#fbbf24";
+    ctx.textAlign = "center";
+    ctx.fillText(`キャラ選択中：あと ${selectSecLeft} 秒（${st.name}）`, canvas.width / 2, 185);
+    ctx.font = "18px sans-serif";
+    ctx.fillStyle = "#f8fafc";
+    const summary = activeRoles.map(r => `${r}P:${CHAR_SPECS[players[r].charKey].name}`).join(" ／ ");
+    ctx.fillText(summary, canvas.width / 2, 230);
+    ctx.textAlign = "left";
+  }
+
+  if (phase === "gameover" && winnerInfo) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "bold 44px sans-serif";
+    ctx.textAlign = "center";
+
+    if (winnerInfo.type === "team") {
+      const isA = winnerInfo.winnerTeam === "A";
+      ctx.fillStyle = isA ? "#38bdf8" : "#f97316";
+      ctx.fillText(isA ? "Aチーム（1P・2P）WIN!" : "Bチーム（3P・4P）WIN!", canvas.width / 2, 190);
+    } else {
+      ctx.fillStyle = PLAYER_COLORS[winnerInfo.winnerRole] || "#fbbf24";
+      ctx.fillText(`${winnerInfo.winnerRole}P WIN!`, canvas.width / 2, 190);
+    }
+
+    ctx.font = "17px sans-serif";
+    ctx.fillStyle = "#fbbf24";
+    ctx.fillText(`${resultSecLeft} 秒後にキャラ選択画面へ戻ります...`, canvas.width / 2, 245);
+    ctx.textAlign = "left";
+  }
+
+  const hudPositions = {
+    1: { x: 35, y: 40 },
+    2: { x: 295, y: 40 },
+    3: { x: 565, y: 40 },
+    4: { x: 825, y: 40 }
+  };
+
+  for (let r = 1; r <= MAX_PLAYERS; r++) {
+    const p = players[r];
+    if (!p.active) continue;
+    const pos = hudPositions[r];
+    const teamLabel = gameMode === "team2v2" ? ` [${getTeamOfRole(r)}]` : "";
+    ctx.font = "bold 20px sans-serif";
+    ctx.fillStyle = PLAYER_COLORS[r];
+    ctx.fillText(`${r}P${teamLabel}: ${p.percent}%`, pos.x, pos.y);
+    renderStocks(p.stocks, pos.x + 6, pos.y + 20, PLAYER_COLORS[r]);
+    if (p.charKey === "elementalist") {
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillStyle = "#f472b6";
+      ctx.fillText(`MP: ${Math.floor(p.mp ?? MAX_MP)}/${MAX_MP}`, pos.x + 115, pos.y + 24);
+    }
+    if (p.charKey === "hammer") {
+      const ch = p.hammerCharge || 0;
+      const isCrit = !!(p.critReady || p.critActive || ch >= HAMMER_MAX_CHARGE);
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
+      ctx.fillText(isCrit ? `会心MAX!` : `蓄積: ${ch}/80`, pos.x + 115, pos.y + 24);
+    }
+    if (p.charKey === "guardian") {
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillStyle = (p.invincibleTimer || 0) > 0 ? "#fde047" : "#7dd3fc";
+      ctx.fillText(
+        (p.invincibleTimer || 0) > 0
+          ? `無敵: ${(p.invincibleTimer / 60).toFixed(1)}s`
+          : `L無敵: ${p.guardianHits || 0}/5`,
+        pos.x + 115,
+        pos.y + 24
+      );
+    }
+    if (p.charKey === "summoner") {
+      const cl = clones[r];
+      const remMs = Math.max(0, (p.summonCooldownUntil || 0) - now);
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillStyle = cl && cl.active ? "#2dd4bf" : "#94a3b8";
+      ctx.fillText(
+        cl && cl.active
+          ? `召喚: ${Math.floor(cl.percent)}%`
+          : (r === myRole && remMs > 0 ? `CT: ${(remMs / 1000).toFixed(0)}s` : `召喚: 待機`),
+        pos.x + 115,
+        pos.y + 24
+      );
+    }
+  }
+
+  requestAnimationFrame(loop);
+}
+updateHostLockButtonUI();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
