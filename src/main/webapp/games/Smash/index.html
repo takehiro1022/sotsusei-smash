@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（マップ8種・復活5秒無敵＆会心ガード貫通版）</title>
+<title>スマブラ風マルチ対戦（5秒絶対会心・被弾蓄積＆リセット・クローン対応版）</title>
 <style>
   body {
     margin: 0;
@@ -386,13 +386,19 @@ const MAX_LOBBY_PLAYERS = 30;
 const MAX_STOCK = 5;
 const MAX_SHIELD = 160;
 const MAX_MP = 100;
-const HAMMER_MAX_CHARGE = 120;
+const HAMMER_CRIT_THRESHOLD = 120;
+const HAMMER_HIT_GAIN = 20;
+const HAMMER_CRIT_BONUS_DMG = 40;
+const HAMMER_CRIT_ABS_DURATION_MS = 5000; // 会心突入から5秒間は絶対会心モード
+const HAMMER_HIT_SMASH_GAIN = 10; // 被弾：スマッシュで蓄積+10
+const HAMMER_HIT_LIGHT_GAIN = 5; // 被弾：L攻撃で蓄積+5
+const HAMMER_EXPIRED_LIGHT_RESET_COUNT = 2; // 5秒経過後：L攻撃2回でリセット
 const GUARDIAN_INVINCIBLE_HITS = 5;
 const GUARDIAN_INVINCIBLE_FRAMES = 180;
 const RESPAWN_INVINCIBLE_FRAMES = 300; // 復活時5秒（60fps * 5 = 300フレーム）
 const SUMMON_COOLDOWN_MS = 30000;
 const SUMMON_CLONE_MAX_PERCENT = 100;
-const SUMMON_CANDIDATES = ["fighter", "guardian", "mage"];
+const SUMMON_CANDIDATES = ["fighter", "guardian", "mage", "hammer"];
 const COUNTDOWN_SECONDS = 10;
 const RESULT_SECONDS = 3;
 const STATE_SEND_INTERVAL_MS = 33;
@@ -685,7 +691,7 @@ const CHAR_SPECS = {
   hammer: {
     name: "🔨 ハンマータイプ",
     shortName: "ハンマー",
-    desc: "K蓄積(120で会心)＆会心はガード貫通2.5倍",
+    desc: "命中+20(120で会心5秒絶対→被弾スマ1/L2で0リセット)・被弾+10/+5・会心+40貫通",
     color: "#fb923c",
     moveAcc: 0.80,
     friction: 0.83,
@@ -701,7 +707,7 @@ const CHAR_SPECS = {
   summoner: {
     name: "👥 召喚タイプ",
     shortName: "召喚",
-    desc: "Kで初期3キャラ召喚(30秒CT・100%消滅・1体まで)",
+    desc: "Kでクローン召喚(30秒CT・100%消滅・1体まで)",
     color: "#2dd4bf",
     moveAcc: 0.94,
     friction: 0.82,
@@ -827,6 +833,113 @@ let ringEffects = [];
 let burnDebuffs = [];
 let clones = {};
 let chatMessages = [];
+
+// ハンマー状態同期用（会心突入時刻・5秒経過後の被弾カウント）
+function ensureHammerCritState(entity, nowMs = performance.now()) {
+  if (!entity || entity.charKey !== "hammer") return;
+  if (typeof entity.critLightHitsAfterExpiry !== "number") {
+    entity.critLightHitsAfterExpiry = 0;
+  }
+  if ((entity.hammerCharge || 0) >= HAMMER_CRIT_THRESHOLD) {
+    if (!entity.critReady) {
+      entity.critReady = true;
+      entity.critStartedAt = nowMs;
+      entity.critLightHitsAfterExpiry = 0;
+    } else if (!entity.critStartedAt) {
+      entity.critStartedAt = nowMs;
+    }
+  }
+}
+
+function isHammerCritState(entity, nowMs = performance.now()) {
+  if (!entity || entity.charKey !== "hammer") return false;
+  ensureHammerCritState(entity, nowMs);
+  return !!(entity.critActive || entity.critReady || (entity.hammerCharge || 0) >= HAMMER_CRIT_THRESHOLD);
+}
+
+function isHammerAbsoluteCritMode(entity, nowMs = performance.now()) {
+  if (!isHammerCritState(entity, nowMs)) return false;
+  const elapsed = nowMs - (entity.critStartedAt || nowMs);
+  return elapsed < HAMMER_CRIT_ABS_DURATION_MS;
+}
+
+function getHammerRemainingAbsSec(entity, nowMs = performance.now()) {
+  if (!isHammerCritState(entity, nowMs)) return 0;
+  const rem = HAMMER_CRIT_ABS_DURATION_MS - (nowMs - (entity.critStartedAt || nowMs));
+  return Math.max(0, rem / 1000);
+}
+
+function resetHammerCritAndCharge(entity) {
+  if (!entity) return;
+  entity.hammerCharge = 0;
+  entity.critReady = false;
+  entity.critActive = false;
+  entity.critStartedAt = 0;
+  entity.critLightHitsAfterExpiry = 0;
+}
+
+function handleHammerHitProgress(entity, wasCrit) {
+  if (!entity || entity.charKey !== "hammer") return;
+  const nowMs = performance.now();
+  if (wasCrit) {
+    // 会心攻撃が当たったら消費し、蓄積0へリセット
+    resetHammerCritAndCharge(entity);
+  } else {
+    // 通常攻撃ヒット時のみ +20 蓄積し、120以上で会心状態（5秒絶対会心スタート）
+    entity.hammerCharge = (entity.hammerCharge || 0) + HAMMER_HIT_GAIN;
+    if (entity.hammerCharge >= HAMMER_CRIT_THRESHOLD && !entity.critReady) {
+      entity.critReady = true;
+      entity.critStartedAt = nowMs;
+      entity.critLightHitsAfterExpiry = 0;
+    }
+  }
+}
+
+function handleHammerIncomingHit(entity, wasSmash, wasLight, nowMs = performance.now()) {
+  if (!entity || entity.charKey !== "hammer") return { changed: false, resetOccurred: false };
+
+  const inCrit = isHammerCritState(entity, nowMs);
+  const absMode = isHammerAbsoluteCritMode(entity, nowMs);
+
+  // 5秒間の絶対会心モード中は被弾しても会心維持＆蓄積変動なし
+  if (inCrit && absMode) {
+    return { changed: false, resetOccurred: false };
+  }
+
+  // 会心状態だが5秒を超えている場合：相手スマッシュ1回 or L攻撃2回で会心解除＆蓄積0リセット
+  if (inCrit && !absMode) {
+    if (wasSmash) {
+      resetHammerCritAndCharge(entity);
+      return { changed: true, resetOccurred: true };
+    }
+    if (wasLight) {
+      entity.critLightHitsAfterExpiry = (entity.critLightHitsAfterExpiry || 0) + 1;
+      if (entity.critLightHitsAfterExpiry >= HAMMER_EXPIRED_LIGHT_RESET_COUNT) {
+        resetHammerCritAndCharge(entity);
+        return { changed: true, resetOccurred: true };
+      }
+      return { changed: true, resetOccurred: false };
+    }
+    return { changed: false, resetOccurred: false };
+  }
+
+  // 会心状態ではない場合：相手からスマッシュ+10 / L攻撃+5 蓄積（120到達で会心5秒開始）
+  let gain = 0;
+  if (wasSmash) gain = HAMMER_HIT_SMASH_GAIN;
+  else if (wasLight) gain = HAMMER_HIT_LIGHT_GAIN;
+
+  if (gain > 0) {
+    entity.hammerCharge = (entity.hammerCharge || 0) + gain;
+    if (entity.hammerCharge >= HAMMER_CRIT_THRESHOLD && !entity.critReady) {
+      entity.critReady = true;
+      entity.critStartedAt = nowMs;
+      entity.critLightHitsAfterExpiry = 0;
+    }
+    return { changed: true, resetOccurred: false };
+  }
+
+  return { changed: false, resetOccurred: false };
+}
 
 function rectsOverlap(a, b) {
   return (
@@ -1069,6 +1182,8 @@ function makePlayer(roleNum, charKey) {
     hammerCharge: 0,
     critReady: false,
     critActive: false,
+    critStartedAt: 0,
+    critLightHitsAfterExpiry: 0,
     guardianHits: 0,
     invincibleTimer: 0,
     summonCooldownUntil: 0,
@@ -1357,7 +1472,7 @@ function resetSinglePlayer(p, roleNum) {
   p.atkType = null; p.atkTimer = 0; p.cooldown = 0; p.hasHit = false;
   p.smashCharging = false; p.smashChargeStart = 0; p.smashChargeRatio = 0;
   p.enhanceLevel = 0; p.enhanceCooldownUntil = 0;
-  p.hammerCharge = 0; p.critReady = false; p.critActive = false;
+  resetHammerCritAndCharge(p);
   p.guardianHits = 0; p.invincibleTimer = 0;
   p.summonCooldownUntil = 0; p.hasClone = false;
   p.mp = MAX_MP; p.magicMode = "fire"; p.frozen = false;
@@ -1896,8 +2011,20 @@ function checkMatchEndCondition() {
   }
 }
 
-function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62, pierceGuard = false) {
-  if (isSpectator || (me.invincibleTimer || 0) > 0) return;
+function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62, pierceGuard = false, hitMeta = {}) {
+  if (isSpectator) return;
+
+  const nowMs = performance.now();
+  let hammerChanged = false;
+  if (me.charKey === "hammer") {
+    const res = handleHammerIncomingHit(me, !!hitMeta.wasSmash, !!hitMeta.wasLight, nowMs);
+    hammerChanged = res.changed;
+  }
+
+  if ((me.invincibleTimer || 0) > 0) {
+    if (hammerChanged) sendMyState(me, true);
+    return;
+  }
 
   if (me.shielding && !me.burnedOut && !pierceGuard) {
     me.shieldHp -= dmg * 2.2;
@@ -1928,11 +2055,17 @@ function sendCloneSync(cloneObj) {
   }
 }
 
-function applyHitToMyClone(dmg, basePower, dir, effect = null, upAngleMult = 0.62) {
+function applyHitToMyClone(dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitMeta = {}) {
   if (entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   const cl = clones[myRole];
   const me = players[myRole];
   if (!cl || !cl.active) return;
+
+  let cloneHammerChanged = false;
+  if (cl.charKey === "hammer") {
+    const res = handleHammerIncomingHit(cl, !!hitMeta.wasSmash, !!hitMeta.wasLight, performance.now());
+    cloneHammerChanged = res.changed;
+  }
 
   if (effect === "freeze") {
     cl.stun = Math.max(cl.stun || 0, 45);
@@ -1957,7 +2090,7 @@ function applyHitToMyClone(dmg, basePower, dir, effect = null, upAngleMult = 0.6
       sendMyState(me, true);
     }
     sendCloneSync(null);
-  } else {
+  } else if (cloneHammerChanged || dmg > 0 || effect) {
     sendCloneSync(cl);
   }
 }
@@ -2235,10 +2368,19 @@ function attachSocketHandlers(socket) {
         const prevStocks = target.stocks;
         const prevName = target.name;
         const prevColor = target.color;
+        const prevCritStartedAt = target.critStartedAt;
+        const prevCritReady = target.critReady;
         Object.assign(target, data.player);
         target.role = targetRole;
         target.name = data.player.name ? sanitizePlayerName(data.player.name, targetRole) : prevName;
         target.color = data.player.color ? sanitizeColorHex(data.player.color, targetRole) : prevColor;
+        if (target.critReady && !prevCritReady) {
+          target.critStartedAt = performance.now();
+        } else if (target.critReady && !target.critStartedAt && prevCritStartedAt) {
+          target.critStartedAt = prevCritStartedAt;
+        } else if (!target.critReady) {
+          target.critStartedAt = 0;
+        }
         const targetSpec = !!data.player.spectator || spectatorRoles.has(targetRole);
         target.spectator = targetSpec;
         target.active = !entryBlockedByHost && !(phase === "playing" && targetSpec);
@@ -2257,13 +2399,29 @@ function attachSocketHandlers(socket) {
     } else if (data.type === "clone") {
       if (isPublicLobbyRoom() || phase === "gameover") return;
       if (data.ownerRole === myRole) return;
-      if (data.clone && data.clone.active) clones[data.ownerRole] = data.clone;
-      else delete clones[data.ownerRole];
+      if (data.clone && data.clone.active) {
+        const prevCl = clones[data.ownerRole];
+        if (data.clone.critReady && !(prevCl && prevCl.critReady)) {
+          data.clone.critStartedAt = performance.now();
+        } else if (data.clone.critReady && !data.clone.critStartedAt && prevCl && prevCl.critStartedAt) {
+          data.clone.critStartedAt = prevCl.critStartedAt;
+        }
+        clones[data.ownerRole] = data.clone;
+      } else {
+        delete clones[data.ownerRole];
+      }
     } else if (data.type === "clone_hit") {
       if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
       if (data.ownerRole !== myRole) return;
       if (data.attackerRole === myRole || isSameTeam(data.attackerRole, myRole)) return;
-      applyHitToMyClone(data.dmg || 0, data.basePower || 0, data.dir || 1, data.effect || null, data.upAngleMult || 0.62);
+      applyHitToMyClone(
+        data.dmg || 0,
+        data.basePower || 0,
+        data.dir || 1,
+        data.effect || null,
+        data.upAngleMult || 0.62,
+        { wasSmash: !!data.wasSmash, wasLight: !!data.wasLight }
+      );
     } else if (data.type === "gameover") {
       if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
       if (data.info) {
@@ -2298,14 +2456,7 @@ function attachSocketHandlers(socket) {
         changed = true;
       }
       if (me.charKey === "hammer" && data.wasSmash) {
-        if (me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE) {
-          me.hammerCharge = 0;
-          me.critReady = false;
-          me.critActive = false;
-        } else {
-          me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + (data.wasFullCharge ? 30 : 10));
-          if (me.hammerCharge >= HAMMER_MAX_CHARGE) me.critReady = true;
-        }
+        handleHammerHitProgress(me, !!data.wasCrit);
         changed = true;
       }
       if (changed) sendMyState(me, true);
@@ -2319,21 +2470,33 @@ function attachSocketHandlers(socket) {
       if (!me || me.stocks <= 0) return;
       const spec = CHAR_SPECS[me.charKey] || CHAR_SPECS.fighter;
       const pierceGuard = !!data.pierceGuard;
+      const wasSmash = !!data.wasSmash;
+      const wasLight = !!data.wasLight;
 
       if (socket.readyState === WebSocket.OPEN && !data.fromClone) {
         socket.send(JSON.stringify({
           type: "hit_confirm",
           attackerRole: data.attackerRole,
           targetRole: myRole,
-          wasLight: !!data.wasLight,
-          wasSmash: !!data.wasSmash,
-          wasFullCharge: !!data.wasFullCharge
+          wasLight,
+          wasSmash,
+          wasCrit: !!data.wasCrit
         }));
       }
 
-      if ((me.invincibleTimer || 0) > 0) return;
+      if ((me.invincibleTimer || 0) > 0) {
+        if (me.charKey === "hammer") {
+          const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
+          if (hRes.changed) sendMyState(me, true);
+        }
+        return;
+      }
 
       if (data.effect === "burn") {
+        if (me.charKey === "hammer") {
+          const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
+          if (hRes.changed) sendMyState(me, true);
+        }
         if (me.shielding && !me.burnedOut && !pierceGuard) {
           me.shieldHp -= (data.dmg || 5) * 2.0;
           if (me.shieldHp <= 0) triggerBurnout(me);
@@ -2346,6 +2509,10 @@ function attachSocketHandlers(socket) {
       }
 
       if (data.effect === "freeze") {
+        if (me.charKey === "hammer") {
+          const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
+          if (hRes.changed) sendMyState(me, true);
+        }
         if (me.shielding && !me.burnedOut && !pierceGuard) {
           me.shieldHp -= 15;
           me.vx = (data.dir || 1) * 2.5;
@@ -2359,7 +2526,7 @@ function attachSocketHandlers(socket) {
         return;
       }
 
-      applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62, pierceGuard);
+      applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62, pierceGuard, { wasSmash, wasLight });
     }
   };
 }
@@ -2436,7 +2603,8 @@ function trySummonClone(me) {
   const newClone = {
     ownerRole: myRole, active: true, charKey: pickedChar,
     x: spawnX, y: me.y - 6, w: 32, h: 42, vx: 0, vy: -3,
-    facing: me.facing, jumps: spec.maxJumps || 2, percent: 0, stun: 0, atkTimer: 0, cooldown: 35, hasHit: false
+    facing: me.facing, jumps: spec.maxJumps || 2, percent: 0, stun: 0, atkTimer: 0, cooldown: 35, hasHit: false,
+    hammerCharge: 0, critReady: false, critActive: false, critStartedAt: 0, critLightHitsAfterExpiry: 0
   };
   clones[myRole] = newClone;
   me.hasClone = true;
@@ -2524,9 +2692,10 @@ function triggerAttack(useSmash, chargeRatio = 0) {
     me.atkTimer = 16;
     me.cooldown = spec.smashCooldown;
     me.smashChargeRatio = chargeRatio;
-    const hasCritCharge = (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE;
-    if (hasCritCharge) me.critReady = true;
-    me.critActive = (me.charKey === "hammer") && !!(me.critReady || hasCritCharge);
+    if (me.charKey === "hammer") {
+      ensureHammerCritState(me, performance.now());
+    }
+    me.critActive = (me.charKey === "hammer") && isHammerCritState(me, performance.now());
   } else {
     me.atkType = "light";
     me.atkTimer = me.charKey === "fighter" ? 7 : 10;
@@ -2593,10 +2762,10 @@ window.addEventListener("keyup", e => {
   }
 });
 
-function getMeleeHitbox(p) {
+function getMeleeHitbox(p, nowMs = performance.now()) {
   if (p.atkTimer <= 0 || !p.atkType || (p.charKey === "mage" && p.atkType === "light")) return null;
   const isSmash = p.atkType === "smash";
-  const isHammerCrit = p.charKey === "hammer" && isSmash && !!(p.critActive || p.critReady || (p.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
+  const isHammerCrit = p.charKey === "hammer" && isSmash && isHammerCritState(p, nowMs);
   let w = isSmash ? 56 : 40;
   let h = isSmash ? 40 : 26;
   if (p.charKey === "hammer" && isSmash) {
@@ -2616,13 +2785,13 @@ function sendHitToTarget(targetRole, dmg, basePower, dir, effect = null, upAngle
   }
 }
 
-function sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62) {
+function sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "clone_hit", attackerRole: myRole, ownerRole, dmg, basePower, dir, effect, upAngleMult }));
+    ws.send(JSON.stringify({ type: "clone_hit", attackerRole: myRole, ownerRole, dmg, basePower, dir, effect, upAngleMult, ...extra }));
   }
 }
 
-function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false) {
+function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false, hitMeta = {}) {
   for (const ownerStr of Object.keys(clones)) {
     const ownerRole = Number(ownerStr);
     if (ownerRole === myRole || isSameTeam(myRole, ownerRole) || isRoleSpectating(ownerRole)) continue;
@@ -2634,7 +2803,7 @@ function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAng
       if (isBlockedByStageSegment(originX, originY, cl.x + cl.w * 0.5, cl.y + cl.h * 0.5)) continue;
     }
     if (hitOwnerList) hitOwnerList.push(ownerRole);
-    sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect, upAngleMult);
+    sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect, upAngleMult, hitMeta);
     return true;
   }
   return false;
@@ -2658,6 +2827,7 @@ function sendMyState(me, force = false) {
       atkType: me.atkType, atkTimer: me.atkTimer,
       enhanceLevel: me.enhanceLevel, hammerCharge: me.hammerCharge,
       critReady: me.critReady, critActive: me.critActive,
+      critStartedAt: me.critStartedAt, critLightHitsAfterExpiry: me.critLightHitsAfterExpiry,
       guardianHits: me.guardianHits, invincibleTimer: me.invincibleTimer,
       hasClone: me.hasClone, mp: me.mp, magicMode: me.magicMode,
       frozen: me.frozen, stun: me.stun, charKey: me.charKey,
@@ -2695,7 +2865,7 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
   }
 }
 
-function updateMyClone(dtScale) {
+function updateMyClone(dtScale, nowMs = performance.now()) {
   if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   const cl = clones[myRole];
   const me = players[myRole];
@@ -2705,6 +2875,10 @@ function updateMyClone(dtScale) {
     if (me) me.hasClone = false;
     sendCloneSync(null);
     return;
+  }
+
+  if (cl.charKey === "hammer") {
+    ensureHammerCritState(cl, nowMs);
   }
 
   const spec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
@@ -2766,11 +2940,11 @@ function updateMyClone(dtScale) {
       if (!target || !target.active || target.stocks <= 0) continue;
       if (doesMeleeHitEntity(hb, cx, cy, target)) {
         cl.hasHit = true;
-        sendHitToTarget(target.role, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, { fromClone: true });
+        sendHitToTarget(target.role, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, { fromClone: true, wasLight: true, wasSmash: false });
         break;
       }
     }
-    if (!cl.hasHit && checkHitEnemyClonesByBox(hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, null, cx, cy, false)) cl.hasHit = true;
+    if (!cl.hasHit && checkHitEnemyClonesByBox(hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, null, cx, cy, false, { wasLight: true, wasSmash: false })) cl.hasHit = true;
   }
 
   if (cl.percent >= SUMMON_CLONE_MAX_PERCENT || cl.x < -160 || cl.x > canvas.width + 160 || cl.y > canvas.height + 160) {
@@ -2814,8 +2988,8 @@ function updateBeams(dtScale) {
         if (isBlockedByStageSegment(originX, originY, target.x + target.w * 0.5, target.y + target.h * 0.5)) continue;
 
         bm.hasHitRoles.push(r);
-        if (bm.mode === "fire") sendHitToTarget(target.role, 0, 2.5, bm.dir, "burn");
-        else if (bm.mode === "ice") sendHitToTarget(target.role, 4, 0, bm.dir, "freeze");
+        if (bm.mode === "fire") sendHitToTarget(target.role, 0, 2.5, bm.dir, "burn", 0.62, { wasSmash: true });
+        else if (bm.mode === "ice") sendHitToTarget(target.role, 4, 0, bm.dir, "freeze", 0.62, { wasLight: true });
         else if (bm.mode === "mage_laser") sendHitToTarget(target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true, fromClone: !!bm.fromClone });
       }
       if (!bm.hasHitCloneOwners) bm.hasHitCloneOwners = [];
@@ -2829,7 +3003,8 @@ function updateBeams(dtScale) {
         bm.hasHitCloneOwners,
         originX,
         originY,
-        false
+        false,
+        { wasSmash: bm.mode === "fire", wasLight: bm.mode !== "fire" }
       );
     }
     if (bm.life <= 0) beams.splice(i, 1);
@@ -2853,7 +3028,7 @@ function updateRings(dtScale) {
         if (Math.hypot(dx, dy) <= curRadius) {
           rg.hasHitRoles.push(r);
           const dirX = ((target.x + target.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
-          sendHitToTarget(target.role, rg.dmg, rg.basePower, dirX, null, 0.65);
+          sendHitToTarget(target.role, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
         }
       }
       if (!rg.hasHitCloneOwners) rg.hasHitCloneOwners = [];
@@ -2869,7 +3044,7 @@ function updateRings(dtScale) {
         if (Math.hypot(dx, dy) <= curRadius) {
           rg.hasHitCloneOwners.push(ownerRole);
           const dirX = ((cl.x + cl.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
-          sendHitToEnemyClone(ownerRole, rg.dmg, rg.basePower, dirX, null, 0.65);
+          sendHitToEnemyClone(ownerRole, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
         }
       }
     }
@@ -2877,7 +3052,7 @@ function updateRings(dtScale) {
   }
 }
 
-function updateMyPlayer(dtScale) {
+function updateMyPlayer(dtScale, nowMs = performance.now()) {
   if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   const me = players[myRole];
   if (!me || me.stocks <= 0) return;
@@ -2887,12 +3062,9 @@ function updateMyPlayer(dtScale) {
   if ((me.invincibleTimer || 0) > 0) me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
   if (me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp ?? MAX_MP) + (1 / 60) * dtScale);
 
-  // ハンマー：蓄積が120以上になったら自動で会心状態にする
+  // ハンマー：蓄積120以上で会心状態（5秒間は絶対会心モード）
   if (me.charKey === "hammer") {
-    me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, me.hammerCharge || 0);
-    if (me.hammerCharge >= HAMMER_MAX_CHARGE) {
-      me.critReady = true;
-    }
+    ensureHammerCritState(me, nowMs);
   }
 
   if (down["KeyJ"] && !me.burnedOut && me.stun <= 0 && me.atkTimer <= 0 && !me.smashCharging) {
@@ -2920,7 +3092,11 @@ function updateMyPlayer(dtScale) {
 
   if (me.atkTimer > 0) {
     me.atkTimer = Math.max(0, me.atkTimer - dtScale);
-    if (me.atkTimer === 0) { me.atkType = null; me.hasHit = false; me.critActive = false; }
+    if (me.atkTimer === 0) {
+      me.atkType = null;
+      me.hasHit = false;
+      me.critActive = false;
+    }
   }
   if (me.cooldown > 0) me.cooldown = Math.max(0, me.cooldown - dtScale);
   if (me.stun > 0) {
@@ -2931,7 +3107,7 @@ function updateMyPlayer(dtScale) {
     }
   }
 
-  const hb = getMeleeHitbox(me);
+  const hb = getMeleeHitbox(me, nowMs);
   const inActiveFrames = hb && (
     (hb.isSmash && me.atkTimer >= 6.5 && me.atkTimer <= 11.5) ||
     (!hb.isSmash && me.atkTimer >= (me.charKey === "fighter" ? 2.5 : 5.5) && me.atkTimer <= (me.charKey === "fighter" ? 6.5 : 8.5))
@@ -2950,28 +3126,24 @@ function updateMyPlayer(dtScale) {
         if (!hb.isSmash && me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
         if (hb.isSmash) {
           const ratio = me.smashChargeRatio || 0;
-          const isFullCharge = ratio >= 0.99;
           let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
           let finalKb = 14.5 * (1 + ratio * 0.45);
           let pierceGuard = false;
+          let wasCrit = false;
 
           if (me.charKey === "hammer") {
-            const isCrit = !!(me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
-            if (isCrit) {
-              finalDmg = Math.round(finalDmg * 2.5);
+            wasCrit = isHammerCritState(me, nowMs);
+            if (wasCrit) {
+              finalDmg += HAMMER_CRIT_BONUS_DMG; // 最大ダメージ +40
               finalKb *= 1.45;
-              pierceGuard = true; // 会心攻撃はガード無効（貫通）
-              me.hammerCharge = 0;
-              me.critReady = false;
-              me.critActive = false;
-            } else {
-              me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + (isFullCharge ? 30 : 10));
-              if (me.hammerCharge >= HAMMER_MAX_CHARGE) me.critReady = true;
+              pierceGuard = true; // 会心攻撃はガード貫通
             }
+            handleHammerHitProgress(me, wasCrit);
           }
           sendHitToTarget(target.role, finalDmg, finalKb, me.facing, null, 0.62, {
             wasSmash: true,
-            wasFullCharge: isFullCharge,
+            wasLight: false,
+            wasCrit,
             pierceGuard
           });
           me.smashChargeRatio = 0;
@@ -2995,25 +3167,21 @@ function updateMyPlayer(dtScale) {
         const ratio = me.smashChargeRatio || 0;
         let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
         let finalKb = 14.5 * (1 + ratio * 0.45);
+        let wasCrit = false;
         if (me.charKey === "hammer") {
-          const isCrit = !!(me.critActive || me.critReady || (me.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
-          if (isCrit) {
-            finalDmg = Math.round(finalDmg * 2.5);
+          wasCrit = isHammerCritState(me, nowMs);
+          if (wasCrit) {
+            finalDmg += HAMMER_CRIT_BONUS_DMG;
             finalKb *= 1.45;
-            me.hammerCharge = 0;
-            me.critReady = false;
-            me.critActive = false;
-          } else {
-            me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + (ratio >= 0.99 ? 30 : 10));
-            if (me.hammerCharge >= HAMMER_MAX_CHARGE) me.critReady = true;
           }
         }
-        if (checkHitEnemyClonesByBox(hb, finalDmg, finalKb, me.facing, null, 0.62, null, originX, originY, false)) {
+        if (checkHitEnemyClonesByBox(hb, finalDmg, finalKb, me.facing, null, 0.62, null, originX, originY, false, { wasSmash: true, wasLight: false })) {
+          if (me.charKey === "hammer") handleHammerHitProgress(me, wasCrit);
           me.hasHit = true; me.smashChargeRatio = 0; sendMyState(me, true);
         }
       } else {
         const lightStats = getEffectiveLightStats(me, spec);
-        if (checkHitEnemyClonesByBox(hb, lightStats.dmg, lightStats.basePower, me.facing, null, 0.62, null, originX, originY, false)) me.hasHit = true;
+        if (checkHitEnemyClonesByBox(hb, lightStats.dmg, lightStats.basePower, me.facing, null, 0.62, null, originX, originY, false, { wasLight: true, wasSmash: false })) me.hasHit = true;
       }
     }
   }
@@ -3023,7 +3191,8 @@ function updateMyPlayer(dtScale) {
     me.percent = 0; me.vx = 0; me.vy = 0; me.stun = 0; me.frozen = false;
     me.jumps = maxJumps; me.shielding = false; me.burnedOut = false; me.shieldHp = MAX_SHIELD;
     me.smashCharging = false; me.hasHit = false; me.enhanceLevel = 0; me.enhanceCooldownUntil = 0;
-    me.hammerCharge = 0; me.critReady = false; me.critActive = false; me.guardianHits = 0;
+    resetHammerCritAndCharge(me);
+    me.guardianHits = 0;
     if (clones[myRole]) { delete clones[myRole]; me.hasClone = false; sendCloneSync(null); }
     me.mp = MAX_MP;
     burnDebuffs = burnDebuffs.filter(b => b.targetRole !== myRole);
@@ -3067,12 +3236,12 @@ function updateProjectiles(dtScale) {
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
         if (rectsOverlap(projBox, target) || segmentIntersectsRect(prevX + 7, prevY + 7, pr.x + 7, pr.y + 7, target.x, target.y, target.w, target.h)) {
-          sendHitToTarget(target.role, pr.dmg, pr.basePower, pr.dir);
+          sendHitToTarget(target.role, pr.dmg, pr.basePower, pr.dir, null, 0.62, { wasLight: true });
           projectiles.splice(i, 1); break;
         }
       }
       if (!projectiles[i]) continue;
-      if (checkHitEnemyClonesByBox(projBox, pr.dmg, pr.basePower, pr.dir)) {
+      if (checkHitEnemyClonesByBox(projBox, pr.dmg, pr.basePower, pr.dir, null, 0.62, null, null, null, false, { wasLight: true })) {
         projectiles.splice(i, 1); continue;
       }
     }
@@ -3097,8 +3266,8 @@ function loop(now) {
   ctx.fillStyle = st.bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  updateMyPlayer(dtScale);
-  updateMyClone(dtScale);
+  updateMyPlayer(dtScale, now);
+  updateMyClone(dtScale, now);
   updateBurnDebuffs(dtScale);
   updateBeams(dtScale);
   updateRings(dtScale);
@@ -3188,14 +3357,25 @@ function loop(now) {
     }
 
     if (p.charKey === "hammer") {
-      const ch = Math.min(HAMMER_MAX_CHARGE, p.hammerCharge || 0);
-      const isCrit = !!(p.critReady || p.critActive || ch >= HAMMER_MAX_CHARGE);
+      const ch = p.hammerCharge || 0;
+      const isCrit = isHammerCritState(p, now);
+      const absMode = isHammerAbsoluteCritMode(p, now);
+      const absRem = getHammerRemainingAbsSec(p, now);
       if (isCrit) {
-        ctx.strokeStyle = "#fde047"; ctx.lineWidth = 3;
+        ctx.strokeStyle = absMode ? "#fef08a" : "#fb923c";
+        ctx.lineWidth = absMode ? 3.5 : 2.5;
         ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
       }
-      ctx.font = "bold 11px sans-serif"; ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
-      ctx.fillText(isCrit ? `⚡会心貫通MAX (${ch}/${HAMMER_MAX_CHARGE})` : `🔨蓄積 ${ch}/${HAMMER_MAX_CHARGE}`, p.x - 34, p.y - 22);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
+      if (isCrit) {
+        const label = absMode
+          ? `⚡絶対会心 ${absRem.toFixed(1)}s (${ch})`
+          : `🔥会心継続 L:${p.critLightHitsAfterExpiry || 0}/2 (${ch})`;
+        ctx.fillText(label, p.x - 44, p.y - 22);
+      } else {
+        ctx.fillText(`🔨蓄積 ${ch}/${HAMMER_CRIT_THRESHOLD}`, p.x - 34, p.y - 22);
+      }
     }
 
     if (p.smashCharging) {
@@ -3229,9 +3409,9 @@ function loop(now) {
     ctx.font = "bold 12px sans-serif"; ctx.fillStyle = "#f8fafc";
     ctx.fillText(`${pName}${teamTag}(${spec.shortName})`, p.x - 20, p.y - 8);
 
-    const hb = getMeleeHitbox(p);
+    const hb = getMeleeHitbox(p, now);
     if (hb) {
-      const isCritHit = p.charKey === "hammer" && hb.isSmash && !!(p.critActive || p.critReady || (p.hammerCharge || 0) >= HAMMER_MAX_CHARGE);
+      const isCritHit = p.charKey === "hammer" && hb.isSmash && isHammerCritState(p, now);
       ctx.fillStyle = isCritHit ? "rgba(253, 224, 71, 0.85)" : (hb.isSmash ? "rgba(251, 146, 60, 0.72)" : "rgba(254, 240, 138, 0.65)");
       ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
       if (isCritHit) { ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 3; ctx.strokeRect(hb.x, hb.y, hb.w, hb.h); }
@@ -3248,11 +3428,16 @@ function loop(now) {
     ctx.save();
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = cSpec.color; ctx.fillRect(cl.x, cl.y, cl.w, cl.h);
-    ctx.strokeStyle = "#2dd4bf"; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+    const clCrit = cl.charKey === "hammer" && isHammerCritState(cl, now);
+    const clAbs = cl.charKey === "hammer" && isHammerAbsoluteCritMode(cl, now);
+    ctx.strokeStyle = clCrit ? "#fde047" : "#2dd4bf"; ctx.lineWidth = clCrit ? 3 : 2; ctx.setLineDash([4, 3]);
     ctx.strokeRect(cl.x - 1, cl.y - 1, cl.w + 2, cl.h + 2); ctx.setLineDash([]);
     ctx.fillStyle = "#ffffff"; ctx.fillRect(cl.facing === 1 ? cl.x + cl.w - 9 : cl.x + 4, cl.y + 9, 5, 5);
-    ctx.font = "bold 11px sans-serif"; ctx.fillStyle = "#5eead4";
-    ctx.fillText(`${ownerName}クローン(${cSpec.shortName}) ${Math.floor(cl.percent)}/100%`, cl.x - 32, cl.y - 8);
+    ctx.font = "bold 11px sans-serif"; ctx.fillStyle = clCrit ? "#fde047" : "#5eead4";
+    const clExtra = cl.charKey === "hammer"
+      ? (clCrit ? (clAbs ? ` 絶対会心${getHammerRemainingAbsSec(cl, now).toFixed(1)}s` : ` L:${cl.critLightHitsAfterExpiry || 0}/2`) : ` 蓄${cl.hammerCharge || 0}`)
+      : "";
+    ctx.fillText(`${ownerName}クローン(${cSpec.shortName}) ${Math.floor(cl.percent)}/100%${clExtra}`, cl.x - 40, cl.y - 8);
     if (cl.charKey !== "mage" && cl.atkTimer > 0) {
       ctx.fillStyle = "rgba(94, 234, 212, 0.65)";
       ctx.fillRect(cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, cl.y + 9, 38, 24);
@@ -3401,10 +3586,15 @@ function loop(now) {
         ctx.fillText(`MP: ${Math.floor(p.mp ?? MAX_MP)}/${MAX_MP}`, pos.x + 115, pos.y + 24);
       }
       if (p.charKey === "hammer") {
-        const ch = Math.min(HAMMER_MAX_CHARGE, p.hammerCharge || 0);
-        const isCrit = !!(p.critReady || p.critActive || ch >= HAMMER_MAX_CHARGE);
+        const ch = p.hammerCharge || 0;
+        const isCrit = isHammerCritState(p, now);
+        const absMode = isHammerAbsoluteCritMode(p, now);
         ctx.font = "bold 13px sans-serif"; ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
-        ctx.fillText(isCrit ? `会心貫通MAX!` : `蓄積: ${ch}/${HAMMER_MAX_CHARGE}`, pos.x + 115, pos.y + 24);
+        if (isCrit) {
+          ctx.fillText(absMode ? `絶対会心 ${getHammerRemainingAbsSec(p, now).toFixed(1)}s` : `会心(L:${p.critLightHitsAfterExpiry || 0}/2)`, pos.x + 115, pos.y + 24);
+        } else {
+          ctx.fillText(`蓄積: ${ch}/${HAMMER_CRIT_THRESHOLD}`, pos.x + 115, pos.y + 24);
+        }
       }
       if (p.charKey === "guardian") {
         ctx.font = "bold 13px sans-serif"; ctx.fillStyle = (p.invincibleTimer || 0) > 0 ? "#fde047" : "#7dd3fc";
