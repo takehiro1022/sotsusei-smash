@@ -16,6 +16,68 @@
     min-height: 100vh;
     padding: 12px 0;
   }
+  #name-gate-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 15, 28, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 16px;
+  }
+  #name-gate-overlay.hidden {
+    display: none;
+  }
+  #name-gate-card {
+    background: #1e293b;
+    border: 2px solid #38bdf8;
+    border-radius: 12px;
+    padding: 24px 28px;
+    width: 100%;
+    max-width: 380px;
+    text-align: center;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+  #name-gate-card h2 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    color: #38bdf8;
+  }
+  #name-gate-card p {
+    margin: 0 0 16px;
+    font-size: 13px;
+    color: #cbd5e1;
+  }
+  #gate-name-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #64748b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 15px;
+    margin-bottom: 14px;
+  }
+  #gate-name-input:focus {
+    outline: none;
+    border-color: #38bdf8;
+  }
+  #gate-enter-btn {
+    width: 100%;
+    background: #2563eb;
+    color: #fff;
+    border: 1px solid #60a5fa;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #gate-enter-btn:hover {
+    background: #1d4ed8;
+  }
   #top-bar {
     margin-bottom: 8px;
     font-size: 16px;
@@ -33,7 +95,7 @@
     color: #fbbf24;
     text-align: center;
   }
-  #passphrase-bar {
+  #passphrase-bar, #profile-color-bar {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -47,16 +109,21 @@
     max-width: 1080px;
     font-size: 13px;
   }
-  #passphrase-input {
+  #profile-color-bar.locked {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  #passphrase-input, #inline-name-input {
     background: #0f172a;
     color: #f8fafc;
     border: 1px solid #64748b;
     border-radius: 6px;
     padding: 6px 10px;
     font-size: 13px;
-    width: 170px;
   }
-  #passphrase-input:focus {
+  #passphrase-input { width: 160px; }
+  #inline-name-input { width: 135px; }
+  #passphrase-input:focus, #inline-name-input:focus {
     outline: none;
     border-color: #38bdf8;
   }
@@ -70,20 +137,62 @@
     font-size: 13px;
     font-weight: bold;
   }
-  .room-action-btn:hover {
+  .room-action-btn:hover:not(:disabled) {
     background: #1d4ed8;
+  }
+  .room-action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .room-action-btn.secondary {
     background: #334155;
     border-color: #64748b;
     color: #e2e8f0;
   }
-  .room-action-btn.secondary:hover {
+  .room-action-btn.secondary:hover:not(:disabled) {
     background: #475569;
   }
   #current-passphrase-badge {
     color: #38bdf8;
     font-weight: bold;
+  }
+  #color-palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .color-swatch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #0f172a;
+    color: #f8fafc;
+    border: 2px solid #475569;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .color-swatch-btn:hover:not(:disabled) {
+    border-color: #e2e8f0;
+  }
+  .color-swatch-btn.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px #fbbf24;
+  }
+  .color-swatch-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    text-decoration: line-through;
+  }
+  .color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    display: inline-block;
   }
   #lobby-controls {
     display: flex;
@@ -193,8 +302,27 @@
 </style>
 </head>
 <body>
-<div id="top-bar">サーバー接続中...</div>
+
+<div id="name-gate-overlay">
+  <div id="name-gate-card">
+    <h2>🎮 プレイヤー名を入力</h2>
+    <p>ロビーや対戦中に表示される名前を決めてください（1〜14文字）</p>
+    <input id="gate-name-input" type="text" maxlength="14" placeholder="例：タロウ / 勇者A">
+    <button id="gate-enter-btn" type="button">この名前でロビーへ入る</button>
+  </div>
+</div>
+
+<div id="top-bar">名前を確認中...</div>
 <div id="room-status-box">現在の入室人数：確認中...</div>
+
+<div id="profile-color-bar">
+  <span>👤 名前：</span>
+  <input id="inline-name-input" type="text" maxlength="14" placeholder="プレイヤー名">
+  <button id="save-inline-name-btn" class="room-action-btn secondary" type="button">名前変更</button>
+  <div class="control-divider"></div>
+  <span id="color-section-label">🎨 カラー（合言葉部屋・かぶりなし）：</span>
+  <div id="color-palette"></div>
+</div>
 
 <div id="passphrase-bar">
   <span>🔑 合言葉：</span>
@@ -276,6 +404,18 @@ const STATE_SEND_INTERVAL_MS = 33;
 const ENHANCE_MAX_LEVEL = 5;
 const ENHANCE_COOLDOWN_MS = 10000;
 let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
+
+const COLOR_PALETTE = [
+  { hex: "#ff5c5c", label: "赤" },
+  { hex: "#38bdf8", label: "青" },
+  { hex: "#4ade80", label: "緑" },
+  { hex: "#fbbf24", label: "黄" },
+  { hex: "#c084fc", label: "紫" },
+  { hex: "#fb923c", label: "橙" },
+  { hex: "#f472b6", label: "桃" },
+  { hex: "#2dd4bf", label: "水" }
+];
+const ALLOWED_COLORS = COLOR_PALETTE.map(c => c.hex.toLowerCase());
 
 const STAGES = {
   battlefield: {
@@ -491,6 +631,14 @@ const PLAYER_COLORS = {
   4: "#fbbf24"
 };
 
+const nameGateOverlay = document.getElementById("name-gate-overlay");
+const gateNameInput = document.getElementById("gate-name-input");
+const gateEnterBtn = document.getElementById("gate-enter-btn");
+const inlineNameInput = document.getElementById("inline-name-input");
+const saveInlineNameBtn = document.getElementById("save-inline-name-btn");
+const profileColorBar = document.getElementById("profile-color-bar");
+const colorPaletteEl = document.getElementById("color-palette");
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("top-bar");
@@ -510,6 +658,27 @@ const charButtons = Array.from(document.querySelectorAll(".char-btn"));
 
 const ctxPath = "/" + location.pathname.split("/")[1];
 const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
+
+function sanitizePlayerName(raw, fallbackRole = 0) {
+  const cleaned = (raw || "").trim().replace(/\s+/g, " ").slice(0, 14);
+  if (cleaned) return cleaned;
+  return fallbackRole > 0 ? `Player${fallbackRole}` : "プレイヤー";
+}
+
+function sanitizeColorHex(hex, fallbackRole = 1) {
+  const lower = (hex || "").trim().toLowerCase();
+  if (ALLOWED_COLORS.includes(lower)) return lower;
+  return (PLAYER_COLORS[fallbackRole] || COLOR_PALETTE[0].hex).toLowerCase();
+}
+
+let savedName = localStorage.getItem("smash_player_name") || "";
+let myName = savedName ? sanitizePlayerName(savedName) : "";
+let myPreferredColor = sanitizeColorHex(localStorage.getItem("smash_player_color") || COLOR_PALETTE[0].hex, 1);
+let myColor = myPreferredColor;
+let hasEnteredLobby = false;
+
+gateNameInput.value = myName;
+inlineNameInput.value = myName;
 
 function sanitizePassphrase(raw) {
   return (raw || "").trim().slice(0, 32);
@@ -553,10 +722,224 @@ let ringEffects = [];
 let burnDebuffs = [];
 let clones = {};
 
+function makePlayer(roleNum, charKey) {
+  const sp = getSpawnPoint(roleNum);
+  const spec = CHAR_SPECS[charKey] || CHAR_SPECS.fighter;
+  return {
+    role: roleNum,
+    name: `Player${roleNum}`,
+    color: sanitizeColorHex(PLAYER_COLORS[roleNum], roleNum),
+    active: false,
+    charKey,
+    x: sp.x, y: sp.y,
+    w: 34, h: 44,
+    vx: 0, vy: 0,
+    facing: sp.facing,
+    jumps: spec.maxJumps || 2,
+    dropThroughTimer: 0,
+    percent: 0,
+    stocks: MAX_STOCK,
+    atkType: null,
+    atkTimer: 0,
+    cooldown: 0,
+    hasHit: false,
+    smashCharging: false,
+    smashChargeStart: 0,
+    smashChargeRatio: 0,
+    enhanceLevel: 0,
+    enhanceCooldownUntil: 0,
+    hammerCharge: 0,
+    critReady: false,
+    critActive: false,
+    guardianHits: 0,
+    invincibleTimer: 0,
+    summonCooldownUntil: 0,
+    hasClone: false,
+    mp: MAX_MP,
+    magicMode: "fire",
+    frozen: false,
+    stun: 0,
+    shielding: false,
+    shieldHp: MAX_SHIELD,
+    burnedOut: false
+  };
+}
+
+const players = {};
+for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
+  players[r] = makePlayer(r, "fighter");
+}
+
+function getDisplayNameOfRole(roleNum) {
+  if (roleNum === myRole && myName) return myName;
+  const p = players[roleNum];
+  if (p && p.name) return p.name;
+  return `Player${roleNum}`;
+}
+
+function getColorOfRole(roleNum) {
+  if (roleNum === myRole) return sanitizeColorHex(myColor, roleNum);
+  const p = players[roleNum];
+  if (p && p.color) return sanitizeColorHex(p.color, roleNum);
+  return sanitizeColorHex(PLAYER_COLORS[roleNum], roleNum);
+}
+
+function getTakenColorsByOthers() {
+  const taken = new Set();
+  for (const r of activeRoles) {
+    if (r === myRole) continue;
+    const p = players[r];
+    if (p && p.color) {
+      taken.add(sanitizeColorHex(p.color, r));
+    }
+  }
+  return taken;
+}
+
+function ensureNonConflictingColor() {
+  if (isPublicLobbyRoom()) {
+    myColor = myPreferredColor;
+    if (myRole !== 0 && players[myRole]) {
+      players[myRole].color = myColor;
+    }
+    return;
+  }
+  const taken = getTakenColorsByOthers();
+  const desired = sanitizeColorHex(myPreferredColor, myRole || 1);
+  if (!taken.has(desired)) {
+    myColor = desired;
+  } else {
+    const freeColor = ALLOWED_COLORS.find(c => !taken.has(c));
+    myColor = freeColor || desired;
+  }
+  if (myRole !== 0 && players[myRole]) {
+    players[myRole].color = myColor;
+  }
+}
+
+function sendProfileSync() {
+  if (isPublicLobbyRoom()) return;
+  if (ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0) {
+    ws.send(JSON.stringify({
+      type: "profile",
+      role: myRole,
+      name: sanitizePlayerName(myName, myRole),
+      color: sanitizeColorHex(myColor, myRole)
+    }));
+  }
+}
+
+function renderColorPalette() {
+  const taken = getTakenColorsByOthers();
+  const canPickColor = !isPublicLobbyRoom() && !entryBlockedByHost && myRole !== 0 && phase !== "playing" && phase !== "gameover";
+  const buttons = Array.from(colorPaletteEl.querySelectorAll(".color-swatch-btn"));
+
+  buttons.forEach(btn => {
+    const hex = btn.dataset.color;
+    const isMine = sanitizeColorHex(myColor, myRole || 1) === hex;
+    const isTakenByOther = !isPublicLobbyRoom() && taken.has(hex);
+
+    btn.classList.toggle("active", isMine);
+    btn.disabled = !canPickColor || (!isMine && isTakenByOther);
+    const labelEl = btn.querySelector(".swatch-text");
+    const baseLabel = btn.dataset.label;
+    if (labelEl) {
+      labelEl.textContent = isTakenByOther && !isMine ? `${baseLabel}(使用中)` : baseLabel;
+    }
+  });
+}
+
+function initColorPaletteDOM() {
+  colorPaletteEl.innerHTML = "";
+  COLOR_PALETTE.forEach(item => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "color-swatch-btn";
+    btn.dataset.color = item.hex.toLowerCase();
+    btn.dataset.label = item.label;
+
+    const dot = document.createElement("span");
+    dot.className = "color-dot";
+    dot.style.backgroundColor = item.hex;
+
+    const text = document.createElement("span");
+    text.className = "swatch-text";
+    text.textContent = item.label;
+
+    btn.appendChild(dot);
+    btn.appendChild(text);
+
+    btn.addEventListener("click", () => {
+      if (isPublicLobbyRoom() || entryBlockedByHost || myRole === 0 || phase === "playing" || phase === "gameover") return;
+      const chosen = item.hex.toLowerCase();
+      const taken = getTakenColorsByOthers();
+      if (taken.has(chosen)) return;
+      myPreferredColor = chosen;
+      myColor = chosen;
+      localStorage.setItem("smash_player_color", myPreferredColor);
+      if (players[myRole]) {
+        players[myRole].color = myColor;
+      }
+      renderColorPalette();
+      sendProfileSync();
+    });
+
+    colorPaletteEl.appendChild(btn);
+  });
+  renderColorPalette();
+}
+
+function applyPlayerName(rawName, reconnectIfNeeded = false) {
+  const finalName = sanitizePlayerName(rawName, myRole);
+  myName = finalName;
+  localStorage.setItem("smash_player_name", myName);
+  gateNameInput.value = myName;
+  inlineNameInput.value = myName;
+  if (myRole !== 0 && players[myRole]) {
+    players[myRole].name = myName;
+  }
+  updateRoomStatusBox();
+  updateStatusByPhase();
+  if (reconnectIfNeeded && !ws) {
+    connectToPassphrase(currentPassphrase, false);
+  } else {
+    sendProfileSync();
+  }
+}
+
+gateEnterBtn.addEventListener("click", () => {
+  hasEnteredLobby = true;
+  nameGateOverlay.classList.add("hidden");
+  applyPlayerName(gateNameInput.value, true);
+});
+
+gateNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    gateEnterBtn.click();
+  }
+});
+
+saveInlineNameBtn.addEventListener("click", () => {
+  applyPlayerName(inlineNameInput.value, false);
+});
+
+inlineNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    saveInlineNameBtn.click();
+  }
+});
+
 function updatePassphraseUI() {
   currentPassphraseBadgeEl.textContent = currentPassphrase
     ? `合言葉「${currentPassphrase}」（最大4人）`
     : `公開待機部屋（最大${MAX_LOBBY_PLAYERS}人）`;
+  const isLobby = isPublicLobbyRoom();
+  document.getElementById("color-section-label").textContent = isLobby
+    ? "🎨 カラー（合言葉部屋で設定・かぶりなし）："
+    : "🎨 カラー（合言葉部屋・かぶりなし）：";
+  renderColorPalette();
 }
 
 function normalizeRolesList(list) {
@@ -645,53 +1028,6 @@ function calcMagicPowerFromMp(spentMp) {
   const basePower = 2.5 + ratio * 11.0;
   const maxRadius = 125 + ratio * 125;
   return { dmg, basePower, maxRadius };
-}
-
-function makePlayer(roleNum, charKey) {
-  const sp = getSpawnPoint(roleNum);
-  const spec = CHAR_SPECS[charKey] || CHAR_SPECS.fighter;
-  return {
-    role: roleNum,
-    active: false,
-    charKey,
-    x: sp.x, y: sp.y,
-    w: 34, h: 44,
-    vx: 0, vy: 0,
-    facing: sp.facing,
-    jumps: spec.maxJumps || 2,
-    dropThroughTimer: 0,
-    percent: 0,
-    stocks: MAX_STOCK,
-    atkType: null,
-    atkTimer: 0,
-    cooldown: 0,
-    hasHit: false,
-    smashCharging: false,
-    smashChargeStart: 0,
-    smashChargeRatio: 0,
-    enhanceLevel: 0,
-    enhanceCooldownUntil: 0,
-    hammerCharge: 0,
-    critReady: false,
-    critActive: false,
-    guardianHits: 0,
-    invincibleTimer: 0,
-    summonCooldownUntil: 0,
-    hasClone: false,
-    mp: MAX_MP,
-    magicMode: "fire",
-    frozen: false,
-    stun: 0,
-    shielding: false,
-    shieldHp: MAX_SHIELD,
-    burnedOut: false,
-    color: PLAYER_COLORS[roleNum] || "#f8fafc"
-  };
-}
-
-const players = {};
-for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
-  players[r] = makePlayer(r, "fighter");
 }
 
 function clearTimers() {
@@ -817,8 +1153,12 @@ function setLobbyLocked(locked) {
   const shouldLock = locked || entryBlockedByHost;
   charSelectEl.classList.toggle("locked", shouldLock);
   lobbyControlsEl.classList.toggle("locked", !isPublicLobbyRoom() && shouldLock);
+  profileColorBar.classList.toggle("locked", locked || entryBlockedByHost);
+  inlineNameInput.disabled = locked || entryBlockedByHost;
+  saveInlineNameBtn.disabled = locked || entryBlockedByHost;
   charButtons.forEach(b => { b.disabled = shouldLock; });
   updateHostControls();
+  renderColorPalette();
 }
 
 function updateRoomStatusBox() {
@@ -827,15 +1167,16 @@ function updateRoomStatusBox() {
     const shown = activeRoles.slice(0, 12).map(r => `待機${r}P`).join(" / ");
     const extra = activeRoles.length > 12 ? ` 外${activeRoles.length - 12}人` : "";
     const memberList = activeRoles.length > 0 ? `${shown}${extra}` : "なし";
-    roomStatusEl.textContent = `【公開待機部屋】待機中：${activeRoles.length}/${cap}人（${memberList}） ｜ 合言葉を入力して4人部屋へ移動できます`;
+    roomStatusEl.textContent = `【公開待機部屋】待機中：${activeRoles.length}/${cap}人（${memberList}） ｜ 名前：${myName || "未設定"} ｜ 合言葉を入力して4人部屋へ移動できます`;
     return;
   }
 
   const memberList = activeRoles.length > 0
     ? activeRoles.map(r => {
+        const pName = getDisplayNameOfRole(r);
         const hostMark = isRoleHost(r) ? "(ホスト)" : "";
         const teamMark = gameMode === "team2v2" ? `[${getTeamOfRole(r)}]` : "";
-        return `${r}P${teamMark}${hostMark}`;
+        return `${pName}(${r}P)${teamMark}${hostMark}`;
       }).join(" / ")
     : "なし";
   const modeText = gameMode === "team2v2" ? "2対2" : "個人戦";
@@ -906,11 +1247,13 @@ function cleanupGhostRoles() {
     }
   }
   syncActivePlayersFromRoles();
+  renderColorPalette();
   updateRoomStatusBox();
   updateHostControls();
   updateStatusByPhase();
   if (ws && ws.readyState === WebSocket.OPEN && myRole !== 0) {
     ws.send(JSON.stringify({ type: "room", roles: activeRoles }));
+    sendProfileSync();
     if (players[myRole]) {
       sendMyState(players[myRole], true);
     }
@@ -976,8 +1319,9 @@ function sendCharChange() {
 
 function updateStatusByPhase() {
   const cap = getRoomCapacity();
+  const displayMyName = myName || "未設定";
   if (isPublicLobbyRoom()) {
-    statusEl.textContent = `[公開待機部屋] 待機枠 ${myRole ? "待機" + myRole + "P" : "接続中"} ｜ 待機中: ${activeRoles.length}/${cap}人（合言葉を入力して入室してください）`;
+    statusEl.textContent = `[公開待機部屋] ${displayMyName}（待機${myRole || "-"}P） ｜ 待機中: ${activeRoles.length}/${cap}人（合言葉を入力して入室してください）`;
     return;
   }
 
@@ -988,11 +1332,11 @@ function updateStatusByPhase() {
   if (entryBlockedByHost) {
     statusEl.textContent = `🔒 ホスト（実行側）がまだ入室していないため入室できません（待機中） ${roomLabel}`;
   } else if (phase === "waiting") {
-    statusEl.textContent = `${roomLabel} あなたは ${myRole ? myRole + "P" : "観戦"} ${hostLabel}（${modeLabel}・${stageLabel}）｜ 参加中: ${activeRoles.length}/${cap}人`;
+    statusEl.textContent = `${roomLabel} あなたは ${displayMyName}（${myRole ? myRole + "P" : "観戦"}）${hostLabel}（${modeLabel}・${stageLabel}）｜ 参加中: ${activeRoles.length}/${cap}人`;
   } else if (phase === "selecting") {
-    statusEl.textContent = `${roomLabel} 人数＆キャラ選択猶予（${modeLabel}・${stageLabel}）！ 残り ${selectSecLeft} 秒（あなた：${myRole}P・${CHAR_SPECS[selectedChar].name}）`;
+    statusEl.textContent = `${roomLabel} 人数＆キャラ選択猶予（${modeLabel}・${stageLabel}）！ 残り ${selectSecLeft} 秒（${displayMyName}・${CHAR_SPECS[selectedChar].name}）`;
   } else if (phase === "playing") {
-    statusEl.textContent = `${roomLabel} バトル中（${modeLabel}・${stageLabel}）！ あなたは ${myRole}P（${CHAR_SPECS[selectedChar].name}）`;
+    statusEl.textContent = `${roomLabel} バトル中（${modeLabel}・${stageLabel}）！ ${displayMyName}（${myRole}P・${CHAR_SPECS[selectedChar].name}）`;
   }
 }
 
@@ -1007,7 +1351,10 @@ function startSelectionPhase() {
     players[myRole].charKey = selectedChar;
     players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
     players[myRole].mp = MAX_MP;
+    players[myRole].name = sanitizePlayerName(myName, myRole);
+    players[myRole].color = sanitizeColorHex(myColor, myRole);
     sendCharChange();
+    sendProfileSync();
   }
   sendModeSync();
   sendStageSync();
@@ -1055,7 +1402,10 @@ function startBattlePhase() {
     players[myRole].charKey = selectedChar;
     players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
     players[myRole].mp = MAX_MP;
+    players[myRole].name = sanitizePlayerName(myName, myRole);
+    players[myRole].color = sanitizeColorHex(myColor, myRole);
     sendCharChange();
+    sendProfileSync();
     sendMyState(players[myRole], true);
   }
   updateStatusByPhase();
@@ -1094,7 +1444,8 @@ function finishGame(info) {
     subline = (myTeam && myTeam === info.winnerTeam) ? "あなたのチームの勝利！🎉" : "あなたのチームは敗北...";
   } else {
     const winRole = info.winnerRole;
-    headline = `${winRole}P WIN!`;
+    const winName = getDisplayNameOfRole(winRole);
+    headline = `${winName} WIN!`;
     subline = (winRole === myRole) ? "あなたの勝利！🎉" : "ストックが0になりました（負け）";
   }
 
@@ -1229,6 +1580,8 @@ function markPeerActive(peerRole) {
   if (!entryBlockedByHost && !activeRoles.includes(r)) {
     activeRoles = [...activeRoles, r].sort((a, b) => a - b);
     syncActivePlayersFromRoles();
+    ensureNonConflictingColor();
+    renderColorPalette();
     updateRoomStatusBox();
     updateHostControls();
     updateStatusByPhase();
@@ -1255,6 +1608,7 @@ function applyRoomSnapshot(rawRoles) {
   entryBlockedByHost = false;
   activeRoles = nextRoles;
   syncActivePlayersFromRoles();
+  ensureNonConflictingColor();
   setLobbyLocked(phase === "playing" || phase === "gameover");
   updateRoomStatusBox();
   updateHostControls();
@@ -1262,6 +1616,7 @@ function applyRoomSnapshot(rawRoles) {
 
   if (!isPublicLobbyRoom() && (phase === "waiting" || phase === "selecting") && myRole !== 0 && activeRoles.includes(myRole)) {
     sendCharChange();
+    sendProfileSync();
     sendModeSync();
     sendStageSync();
   }
@@ -1297,18 +1652,40 @@ function attachSocketHandlers(socket) {
       clearTimers();
       phase = "waiting";
       syncActivePlayersFromRoles();
+      ensureNonConflictingColor();
       setLobbyLocked(false);
-      updateRoomStatusBox();
       if (!isPublicLobbyRoom() && players[myRole]) {
         players[myRole].active = true;
+        players[myRole].name = sanitizePlayerName(myName, myRole);
+        players[myRole].color = sanitizeColorHex(myColor, myRole);
         players[myRole].charKey = selectedChar;
         players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
         players[myRole].mp = MAX_MP;
         sendCharChange();
+        sendProfileSync();
       }
+      updateRoomStatusBox();
       updateStatusByPhase();
     } else if (data.type === "room") {
       applyRoomSnapshot(data.roles);
+    } else if (data.type === "profile") {
+      const pRole = Number(data.role) || 0;
+      if (!pRole || pRole === myRole) return;
+      markPeerActive(pRole);
+      if (players[pRole]) {
+        if (typeof data.name === "string" && data.name.trim()) {
+          players[pRole].name = sanitizePlayerName(data.name, pRole);
+        }
+        if (typeof data.color === "string" && data.color.trim()) {
+          players[pRole].color = sanitizeColorHex(data.color, pRole);
+        }
+      }
+      ensureNonConflictingColor();
+      renderColorPalette();
+      updateRoomStatusBox();
+      if (players[myRole] && players[myRole].color !== myColor) {
+        sendProfileSync();
+      }
     } else if (data.type === "mode") {
       if (data.mode === "ffa" || data.mode === "team2v2") {
         setMode(data.mode, false);
@@ -1381,6 +1758,7 @@ function attachSocketHandlers(socket) {
         }
         activeRoles = remaining;
       }
+      renderColorPalette();
       updateRoomStatusBox();
       updateHostControls();
       if (phase === "playing") {
@@ -1404,8 +1782,12 @@ function attachSocketHandlers(socket) {
       if (target) {
         const justStarted = (phase === "playing" && (performance.now() - matchStartedAt) < 600);
         const prevStocks = target.stocks;
+        const prevName = target.name;
+        const prevColor = target.color;
         Object.assign(target, data.player);
         target.role = targetRole;
+        target.name = data.player.name ? sanitizePlayerName(data.player.name, targetRole) : prevName;
+        target.color = data.player.color ? sanitizeColorHex(data.player.color, targetRole) : prevColor;
         target.active = !entryBlockedByHost;
         if (!target.hasClone) {
           delete clones[target.role];
@@ -1561,6 +1943,7 @@ function attachSocketHandlers(socket) {
 }
 
 function connectToPassphrase(nextPassphrase, updateUrl = true) {
+  if (!hasEnteredLobby) return;
   currentPassphrase = sanitizePassphrase(nextPassphrase);
   passphraseInputEl.value = currentPassphrase;
   updatePassphraseUI();
@@ -1592,6 +1975,8 @@ function connectToPassphrase(nextPassphrase, updateUrl = true) {
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
     resetSinglePlayer(players[r], r);
     players[r].active = false;
+    players[r].name = `Player${r}`;
+    players[r].color = sanitizeColorHex(PLAYER_COLORS[r], r);
   }
 
   statusEl.textContent = currentPassphrase
@@ -1830,7 +2215,8 @@ function triggerAttack(useSmash, chargeRatio = 0) {
 
 const down = {};
 window.addEventListener("keydown", e => {
-  if (document.activeElement === passphraseInputEl) return;
+  if (!hasEnteredLobby) return;
+  if (document.activeElement === passphraseInputEl || document.activeElement === inlineNameInput || document.activeElement === gateNameInput) return;
   if (entryBlockedByHost || myRole === 0) return;
 
   if ((phase === "waiting" || phase === "selecting") && !down[e.code]) {
@@ -1881,7 +2267,8 @@ window.addEventListener("keyup", e => {
   down[e.code] = false;
 
   if (e.code === "KeyK") {
-    if (document.activeElement === passphraseInputEl) return;
+    if (!hasEnteredLobby) return;
+    if (document.activeElement === passphraseInputEl || document.activeElement === inlineNameInput || document.activeElement === gateNameInput) return;
     if (isPublicLobbyRoom() || entryBlockedByHost || myRole === 0 || phase !== "playing") return;
     const me = players[myRole];
     if (!me || me.charKey === "enhancer" || me.charKey === "elementalist" || me.charKey === "summoner" || !me.smashCharging) return;
@@ -1977,6 +2364,8 @@ function sendMyState(me, force = false) {
     type: "state",
     player: {
       role: me.role,
+      name: sanitizePlayerName(myName, me.role),
+      color: sanitizeColorHex(myColor, me.role),
       active: me.active,
       x: me.x, y: me.y, facing: me.facing,
       percent: me.percent, stocks: me.stocks,
@@ -2583,7 +2972,8 @@ function loop(now) {
     const p = players[r];
     if (!p.active || p.stocks <= 0) continue;
     const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
-    const pColor = PLAYER_COLORS[r] || spec.color;
+    const pColor = getColorOfRole(r);
+    const pName = getDisplayNameOfRole(r);
     const isInv = (p.invincibleTimer || 0) > 0;
 
     if (isInv) {
@@ -2729,7 +3119,7 @@ function loop(now) {
     const teamTag = gameMode === "team2v2" ? `[${getTeamOfRole(r)}]` : "";
     ctx.font = "bold 12px sans-serif";
     ctx.fillStyle = "#f8fafc";
-    ctx.fillText(`${r}P${teamTag}(${spec.name})`, p.x - 16, p.y - 8);
+    ctx.fillText(`${pName}${teamTag}(${spec.name})`, p.x - 20, p.y - 8);
 
     const hb = getMeleeHitbox(p);
     if (hb) {
@@ -2751,6 +3141,7 @@ function loop(now) {
     const cl = clones[ownerRole];
     if (!cl || !cl.active) continue;
     const cSpec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
+    const ownerName = getDisplayNameOfRole(ownerRole);
 
     ctx.save();
     ctx.globalAlpha = 0.85;
@@ -2768,7 +3159,7 @@ function loop(now) {
 
     ctx.font = "bold 11px sans-serif";
     ctx.fillStyle = "#5eead4";
-    ctx.fillText(`${ownerRole}Pクローン(${cSpec.name}) ${Math.floor(cl.percent)}/100%`, cl.x - 32, cl.y - 8);
+    ctx.fillText(`${ownerName}クローン(${cSpec.name}) ${Math.floor(cl.percent)}/100%`, cl.x - 32, cl.y - 8);
 
     if (cl.charKey !== "mage" && cl.atkTimer > 0) {
       const hbW = 38;
@@ -2862,7 +3253,7 @@ function loop(now) {
     ctx.fillText(`🏠 公開待機部屋（${activeRoles.length} / ${MAX_LOBBY_PLAYERS} 人入室中）`, canvas.width / 2, 165);
     ctx.font = "18px sans-serif";
     ctx.fillStyle = "#f8fafc";
-    const shown = activeRoles.slice(0, 12).map(r => `待機${r}P`).join("・");
+    const shown = activeRoles.slice(0, 12).map(r => `${getDisplayNameOfRole(r)}(待機${r}P)`).join("・");
     const extra = activeRoles.length > 12 ? ` …ほか${activeRoles.length - 12}人` : "";
     const listStr = activeRoles.length > 0 ? `${shown}${extra}` : "なし";
     ctx.fillText(`待機メンバー：${listStr}`, canvas.width / 2, 205);
@@ -2891,11 +3282,11 @@ function loop(now) {
     ctx.fillText(`現在の入室人数：${activeRoles.length} / ${MAX_BATTLE_PLAYERS} 人（マップ：${st.name}）`, canvas.width / 2, 175);
     ctx.font = "18px sans-serif";
     ctx.fillStyle = "#f8fafc";
-    const listStr = activeRoles.length > 0 ? activeRoles.map(r => `${r}P`).join("・") : "なし";
+    const listStr = activeRoles.length > 0 ? activeRoles.map(r => `${getDisplayNameOfRole(r)}(${r}P)`).join("・") : "なし";
     ctx.fillText(`参加メンバー：${listStr}`, canvas.width / 2, 212);
     ctx.font = "16px sans-serif";
     ctx.fillStyle = "#cbd5e1";
-    ctx.fillText("上の「▶ 10秒カウント開始」を押すと10秒の人数集め＆キャラ選択後に開始します", canvas.width / 2, 250);
+    ctx.fillText("カラー・キャラを選んで「▶ 10秒カウント開始」を押すと開始します", canvas.width / 2, 250);
     ctx.textAlign = "left";
   }
 
@@ -2908,7 +3299,7 @@ function loop(now) {
     ctx.fillText(`開始まであと ${selectSecLeft} 秒（${activeRoles.length}/${MAX_BATTLE_PLAYERS}人・${st.name}）`, canvas.width / 2, 185);
     ctx.font = "18px sans-serif";
     ctx.fillStyle = "#f8fafc";
-    const summary = activeRoles.map(r => `${r}P:${CHAR_SPECS[players[r].charKey].name}`).join(" ／ ");
+    const summary = activeRoles.map(r => `${getDisplayNameOfRole(r)}:${CHAR_SPECS[players[r].charKey].name}`).join(" ／ ");
     ctx.fillText(summary || "参加待機中...", canvas.width / 2, 230);
     ctx.textAlign = "left";
   }
@@ -2924,8 +3315,10 @@ function loop(now) {
       ctx.fillStyle = isA ? "#38bdf8" : "#f97316";
       ctx.fillText(isA ? "Aチーム（1P・2P）WIN!" : "Bチーム（3P・4P）WIN!", canvas.width / 2, 190);
     } else {
-      ctx.fillStyle = PLAYER_COLORS[winnerInfo.winnerRole] || "#fbbf24";
-      ctx.fillText(`${winnerInfo.winnerRole}P WIN!`, canvas.width / 2, 190);
+      const winColor = getColorOfRole(winnerInfo.winnerRole);
+      const winName = getDisplayNameOfRole(winnerInfo.winnerRole);
+      ctx.fillStyle = winColor;
+      ctx.fillText(`${winName} WIN!`, canvas.width / 2, 190);
     }
 
     ctx.font = "17px sans-serif";
@@ -2946,11 +3339,13 @@ function loop(now) {
       const p = players[r];
       if (!p.active) continue;
       const pos = hudPositions[r];
+      const pColor = getColorOfRole(r);
+      const pName = getDisplayNameOfRole(r);
       const teamLabel = gameMode === "team2v2" ? ` [${getTeamOfRole(r)}]` : "";
-      ctx.font = "bold 20px sans-serif";
-      ctx.fillStyle = PLAYER_COLORS[r];
-      ctx.fillText(`${r}P${teamLabel}: ${p.percent}%`, pos.x, pos.y);
-      renderStocks(p.stocks, pos.x + 6, pos.y + 20, PLAYER_COLORS[r]);
+      ctx.font = "bold 18px sans-serif";
+      ctx.fillStyle = pColor;
+      ctx.fillText(`${pName}${teamLabel}: ${p.percent}%`, pos.x, pos.y);
+      renderStocks(p.stocks, pos.x + 6, pos.y + 20, pColor);
       if (p.charKey === "elementalist") {
         ctx.font = "bold 13px sans-serif";
         ctx.fillStyle = "#f472b6";
@@ -2992,8 +3387,22 @@ function loop(now) {
 
   requestAnimationFrame(loop);
 }
+
+initColorPaletteDOM();
 updateHostLockButtonUI();
-connectToPassphrase(currentPassphrase, false);
+updatePassphraseUI();
+updateRoomStatusBox();
+updateHostControls();
+if (myName) {
+  hasEnteredLobby = true;
+  nameGateOverlay.classList.add("hidden");
+  connectToPassphrase(currentPassphrase, false);
+} else {
+  hasEnteredLobby = false;
+  nameGateOverlay.classList.remove("hidden");
+  statusEl.textContent = "名前を入力してロビーへ入ってください";
+  setTimeout(() => gateNameInput.focus(), 50);
+}
 requestAnimationFrame(loop);
 </script>
 </body>
