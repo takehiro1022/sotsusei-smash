@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（最大4人・2v2・固定ホスト対応）</title>
+<title>スマブラ風マルチ対戦（最大4人・2v2・固定ホスト・合言葉対応）</title>
 <style>
   body {
     margin: 0;
@@ -27,11 +27,63 @@
     border: 1px solid #475569;
     border-radius: 8px;
     padding: 8px 16px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     font-size: 14px;
     font-weight: bold;
     color: #fbbf24;
     text-align: center;
+  }
+  #passphrase-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin-bottom: 10px;
+    max-width: 1080px;
+    font-size: 13px;
+  }
+  #passphrase-input {
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #64748b;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    width: 170px;
+  }
+  #passphrase-input:focus {
+    outline: none;
+    border-color: #38bdf8;
+  }
+  .room-action-btn {
+    background: #2563eb;
+    color: #fff;
+    border: 1px solid #60a5fa;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+  }
+  .room-action-btn:hover {
+    background: #1d4ed8;
+  }
+  .room-action-btn.secondary {
+    background: #334155;
+    border-color: #64748b;
+    color: #e2e8f0;
+  }
+  .room-action-btn.secondary:hover {
+    background: #475569;
+  }
+  #current-passphrase-badge {
+    color: #38bdf8;
+    font-weight: bold;
   }
   #lobby-controls {
     display: flex;
@@ -139,6 +191,14 @@
 <body>
 <div id="top-bar">サーバー接続中...</div>
 <div id="room-status-box">現在の入室人数：確認中...</div>
+
+<div id="passphrase-bar">
+  <span>🔑 合言葉：</span>
+  <input id="passphrase-input" type="text" maxlength="32" placeholder="例：1234 / 友達部屋">
+  <button id="join-passphrase-btn" class="room-action-btn" type="button">この合言葉で入室</button>
+  <button id="public-room-btn" class="room-action-btn secondary" type="button">公開部屋へ戻る</button>
+  <span>現在の部屋：<span id="current-passphrase-badge">公開（default）</span></span>
+</div>
 
 <div id="lobby-controls">
   <button class="mode-btn active" data-mode="ffa">⚔️ 個人戦</button>
@@ -430,6 +490,10 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("top-bar");
 const roomStatusEl = document.getElementById("room-status-box");
+const passphraseInputEl = document.getElementById("passphrase-input");
+const joinPassphraseBtn = document.getElementById("join-passphrase-btn");
+const publicRoomBtn = document.getElementById("public-room-btn");
+const currentPassphraseBadgeEl = document.getElementById("current-passphrase-badge");
 const lobbyControlsEl = document.getElementById("lobby-controls");
 const charSelectEl = document.getElementById("char-select");
 const hostLockBtn = document.getElementById("host-lock-btn");
@@ -441,8 +505,16 @@ const charButtons = Array.from(document.querySelectorAll(".char-btn"));
 
 const ctxPath = "/" + location.pathname.split("/")[1];
 const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
-const ws = new WebSocket(wsProto + location.host + ctxPath + "/smash-ws");
 
+function sanitizePassphrase(raw) {
+  return (raw || "").trim().slice(0, 32);
+}
+
+const initialUrlParams = new URLSearchParams(location.search);
+let currentPassphrase = sanitizePassphrase(initialUrlParams.get("room") || "");
+passphraseInputEl.value = currentPassphrase;
+
+let ws = null;
 let phase = "waiting"; // "waiting" | "selecting" | "playing" | "gameover"
 let gameMode = "ffa";  // "ffa" | "team2v2"
 let currentStageKey = "battlefield";
@@ -467,6 +539,10 @@ let beams = [];
 let ringEffects = [];
 let burnDebuffs = [];
 let clones = {}; // ownerRole -> clone object
+
+function updatePassphraseUI() {
+  currentPassphraseBadgeEl.textContent = currentPassphrase ? currentPassphrase : "公開（default）";
+}
 
 function normalizeRolesList(list) {
   if (!Array.isArray(list)) return [];
@@ -717,23 +793,24 @@ function updateRoomStatusBox() {
     : "なし";
   const modeText = gameMode === "team2v2" ? "2対2" : "個人戦";
   const stageText = getCurrentStage().name;
+  const roomText = currentPassphrase ? `合言葉「${currentPassphrase}」` : "公開部屋";
   const lockBadge = fixedHostThisPc ? " [固定ホスト]" : "";
   const ghostBadge = ghostFilterActive ? " [幽霊整理中]" : "";
   if (entryBlockedByHost) {
-    roomStatusEl.textContent = `🔒 ホスト入室待ちのため入室待機中 ｜ 現在の入室：${activeRoles.length}/4人（${memberList}）`;
+    roomStatusEl.textContent = `🔒 ホスト入室待ち（${roomText}） ｜ 現在の入室：${activeRoles.length}/4人（${memberList}）`;
   } else {
-    roomStatusEl.textContent = `入室中：${activeRoles.length}/4人（${memberList}） ｜ モード：${modeText} ｜ マップ：${stageText}${lockBadge}${ghostBadge}`;
+    roomStatusEl.textContent = `【${roomText}】入室中：${activeRoles.length}/4人（${memberList}） ｜ モード：${modeText} ｜ マップ：${stageText}${lockBadge}${ghostBadge}`;
   }
 }
 
 function sendModeSync() {
-  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0 && isHost()) {
+  if (ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0 && isHost()) {
     ws.send(JSON.stringify({ type: "mode", mode: gameMode }));
   }
 }
 
 function sendStageSync() {
-  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0 && isHost()) {
+  if (ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0 && isHost()) {
     ws.send(JSON.stringify({ type: "stage", stageKey: currentStageKey }));
   }
 }
@@ -745,7 +822,7 @@ function setMode(newMode, broadcastChange = true) {
   gameMode = newMode;
   modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === gameMode));
   updateRoomStatusBox();
-  if (broadcastChange && ws.readyState === WebSocket.OPEN) {
+  if (broadcastChange && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "mode", mode: gameMode }));
   }
   updateStatusByPhase();
@@ -765,7 +842,7 @@ function setStage(newStageKey, broadcastChange = true) {
     players[r].facing = sp.facing;
   }
   updateRoomStatusBox();
-  if (broadcastChange && ws.readyState === WebSocket.OPEN) {
+  if (broadcastChange && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "stage", stageKey: currentStageKey }));
   }
   updateStatusByPhase();
@@ -785,7 +862,7 @@ function cleanupGhostRoles() {
   updateRoomStatusBox();
   updateHostControls();
   updateStatusByPhase();
-  if (ws.readyState === WebSocket.OPEN && myRole !== 0) {
+  if (ws && ws.readyState === WebSocket.OPEN && myRole !== 0) {
     ws.send(JSON.stringify({ type: "room", roles: activeRoles }));
     if (players[myRole]) {
       sendMyState(players[myRole], true);
@@ -845,7 +922,7 @@ charButtons.forEach((btn, idx) => {
 });
 
 function sendCharChange() {
-  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0) {
+  if (ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0) {
     ws.send(JSON.stringify({ type: "char", role: myRole, charKey: selectedChar }));
   }
 }
@@ -854,14 +931,15 @@ function updateStatusByPhase() {
   const modeLabel = gameMode === "team2v2" ? "2対2" : "個人戦";
   const stageLabel = getCurrentStage().name;
   const hostLabel = isHost() ? "★ホスト" : "";
+  const roomLabel = currentPassphrase ? `[合言葉:${currentPassphrase}]` : "[公開]";
   if (entryBlockedByHost) {
-    statusEl.textContent = `🔒 ホスト（実行側）がまだ入室していないため入室できません（待機中）`;
+    statusEl.textContent = `🔒 ホスト（実行側）がまだ入室していないため入室できません（待機中） ${roomLabel}`;
   } else if (phase === "waiting") {
-    statusEl.textContent = `あなたは ${myRole ? myRole + "P" : "観戦"} ${hostLabel}（${modeLabel}・${stageLabel}）｜ 参加中: ${activeRoles.length}/4人`;
+    statusEl.textContent = `${roomLabel} あなたは ${myRole ? myRole + "P" : "観戦"} ${hostLabel}（${modeLabel}・${stageLabel}）｜ 参加中: ${activeRoles.length}/4人`;
   } else if (phase === "selecting") {
-    statusEl.textContent = `キャラ選択中（${modeLabel}・${stageLabel}）！ 残り ${selectSecLeft} 秒（あなた：${myRole}P・${CHAR_SPECS[selectedChar].name}）`;
+    statusEl.textContent = `${roomLabel} キャラ選択中（${modeLabel}・${stageLabel}）！ 残り ${selectSecLeft} 秒（あなた：${myRole}P・${CHAR_SPECS[selectedChar].name}）`;
   } else if (phase === "playing") {
-    statusEl.textContent = `バトル中（${modeLabel}・${stageLabel}）！ あなたは ${myRole}P（${CHAR_SPECS[selectedChar].name}）`;
+    statusEl.textContent = `${roomLabel} バトル中（${modeLabel}・${stageLabel}）！ あなたは ${myRole}P（${CHAR_SPECS[selectedChar].name}）`;
   }
 }
 
@@ -918,7 +996,7 @@ function startBattlePhase() {
 
 function requestStartBattle() {
   if (entryBlockedByHost || activeRoles.length < 2 || !isHost()) return;
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "start_match", mode: gameMode, stageKey: currentStageKey }));
   }
   if (phase === "waiting" || phase === "selecting") {
@@ -964,7 +1042,7 @@ function finishGame(info) {
 function broadcastGameOver(info) {
   if (gameOverSent) return;
   gameOverSent = true;
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "gameover", info }));
   }
   finishGame(info);
@@ -1029,7 +1107,7 @@ function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62) {
 }
 
 function sendCloneSync(cloneObj) {
-  if (ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0) {
+  if (ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && myRole !== 0) {
     ws.send(JSON.stringify({
       type: "clone",
       ownerRole: myRole,
@@ -1117,271 +1195,342 @@ function applyRoomSnapshot(rawRoles) {
   }
 }
 
-ws.onmessage = (e) => {
-  const data = JSON.parse(e.data);
-  if (data.type === "role") {
-    const assignedRole = Number(data.role) || 0;
-    myRole = assignedRole;
-    const baseList = Array.isArray(data.roles)
-      ? data.roles
-      : (assignedRole > 0 ? [...activeRoles, assignedRole] : activeRoles);
-    const normalized = pruneGhostRoles(baseList);
+function attachSocketHandlers(socket) {
+  socket.onmessage = (e) => {
+    if (socket !== ws) return;
+    const data = JSON.parse(e.data);
+    if (data.type === "role") {
+      const assignedRole = Number(data.role) || 0;
+      myRole = assignedRole;
+      const baseList = Array.isArray(data.roles)
+        ? data.roles
+        : (assignedRole > 0 ? [...activeRoles, assignedRole] : activeRoles);
+      const normalized = pruneGhostRoles(baseList);
 
-    if (!fixedHostThisPc && !isHostPresentInList(normalized)) {
-      entryBlockedByHost = true;
-      activeRoles = [];
-      clearTimers();
-      phase = "waiting";
-      syncActivePlayersFromRoles();
-      setLobbyLocked(true);
-      updateRoomStatusBox();
-      updateHostControls();
-      updateStatusByPhase();
-      return;
-    }
-
-    entryBlockedByHost = false;
-    activeRoles = normalized;
-    clearTimers();
-    phase = "waiting";
-    syncActivePlayersFromRoles();
-    setLobbyLocked(false);
-    updateRoomStatusBox();
-    if (players[myRole]) {
-      players[myRole].active = true;
-      players[myRole].charKey = selectedChar;
-      players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
-      players[myRole].mp = MAX_MP;
-      sendCharChange();
-    }
-    updateStatusByPhase();
-  } else if (data.type === "room") {
-    applyRoomSnapshot(data.roles);
-  } else if (data.type === "mode") {
-    if (data.mode === "ffa" || data.mode === "team2v2") {
-      setMode(data.mode, false);
-    }
-  } else if (data.type === "stage") {
-    if (data.stageKey && STAGES[data.stageKey]) {
-      setStage(data.stageKey, false);
-    }
-  } else if (data.type === "start_match") {
-    if (entryBlockedByHost) return;
-    if (data.mode === "ffa" || data.mode === "team2v2") {
-      gameMode = data.mode;
-      modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === gameMode));
-    }
-    if (data.stageKey && STAGES[data.stageKey]) {
-      currentStageKey = data.stageKey;
-      stageButtons.forEach(b => b.classList.toggle("active", b.dataset.stage === currentStageKey));
-    }
-    updateRoomStatusBox();
-    if (phase === "waiting" || phase === "selecting") {
-      startBattlePhase();
-    }
-  } else if (data.type === "full") {
-    statusEl.textContent = "満員です（最大4人まで対戦可能）";
-    roomStatusEl.textContent = "入室中：4 / 4人（満員）";
-  } else if (data.type === "leave") {
-    const leftRole = Number(data.role) || 0;
-    if (leftRole) {
-      seenPeerRoles.delete(leftRole);
-      const remaining = activeRoles.filter(r => r !== leftRole);
-      delete clones[leftRole];
-      if (players[leftRole]) {
-        players[leftRole].active = false;
-        players[leftRole].stocks = 0;
-      }
-      if (!fixedHostThisPc && !isHostPresentInList(remaining)) {
+      if (!fixedHostThisPc && !isHostPresentInList(normalized)) {
         entryBlockedByHost = true;
         activeRoles = [];
         clearTimers();
         phase = "waiting";
+        syncActivePlayersFromRoles();
         setLobbyLocked(true);
         updateRoomStatusBox();
         updateHostControls();
         updateStatusByPhase();
         return;
       }
-      activeRoles = remaining;
-    }
-    updateRoomStatusBox();
-    updateHostControls();
-    if (phase === "playing") {
-      checkMatchEndCondition();
-    } else {
-      updateStatusByPhase();
-    }
-  } else if (data.type === "char") {
-    if (data.role === myRole) return;
-    markPeerActive(data.role);
-    if (players[data.role]) {
-      players[data.role].charKey = data.charKey;
-    }
-  } else if (data.type === "state") {
-    if (phase === "gameover") return;
-    if (!data.player || data.player.role === myRole) return;
-    const targetRole = Number(data.player.role);
-    if (!Number.isInteger(targetRole) || targetRole < 1 || targetRole > MAX_PLAYERS) return;
-    markPeerActive(targetRole);
-    const target = players[targetRole];
-    if (target) {
-      const justStarted = (phase === "playing" && (performance.now() - matchStartedAt) < 600);
-      const prevStocks = target.stocks;
-      Object.assign(target, data.player);
-      target.role = targetRole;
-      target.active = !entryBlockedByHost;
-      if (!target.hasClone) {
-        delete clones[target.role];
-      }
-      if (justStarted) {
-        target.stocks = Math.max(prevStocks, MAX_STOCK);
-        target.percent = 0;
-      }
-      if (!entryBlockedByHost && !activeRoles.includes(target.role)) {
-        activeRoles = [...activeRoles, target.role].sort((a, b) => a - b);
-        updateRoomStatusBox();
-        updateHostControls();
-      }
-      if (phase === "playing" && !justStarted) {
-        checkMatchEndCondition();
-      }
-    }
-  } else if (data.type === "clone") {
-    if (phase === "gameover") return;
-    if (data.ownerRole === myRole) return;
-    if (data.clone && data.clone.active) {
-      clones[data.ownerRole] = data.clone;
-    } else {
-      delete clones[data.ownerRole];
-    }
-  } else if (data.type === "clone_hit") {
-    if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
-    if (data.ownerRole !== myRole) return;
-    if (data.attackerRole === myRole || isSameTeam(data.attackerRole, myRole)) return;
-    applyHitToMyClone(data.dmg || 0, data.basePower || 0, data.dir || 1, data.effect || null, data.upAngleMult || 0.62);
-  } else if (data.type === "gameover") {
-    if (entryBlockedByHost) return;
-    if (data.info) {
-      gameOverSent = true;
-      finishGame(data.info);
-    }
-  } else if (data.type === "projectile") {
-    if (phase === "gameover") return;
-    if (data.proj && data.proj.ownerRole !== myRole) {
-      projectiles.push(data.proj);
-    }
-  } else if (data.type === "beam") {
-    if (phase === "gameover") return;
-    if (data.beam && data.beam.ownerRole !== myRole) {
-      beams.push(data.beam);
-    }
-  } else if (data.type === "ring") {
-    if (phase === "gameover") return;
-    if (data.ring && data.ring.ownerRole !== myRole) {
-      ringEffects.push(data.ring);
-    }
-  } else if (data.type === "hit_confirm") {
-    if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
-    if (data.attackerRole !== myRole) return;
-    const me = players[myRole];
-    if (!me) return;
 
-    let changed = false;
-    if (me.charKey === "elementalist") {
-      me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
-      changed = true;
-    }
-    if (me.charKey === "guardian" && data.wasLight) {
-      if ((me.invincibleTimer || 0) <= 0) {
-        me.guardianHits = (me.guardianHits || 0) + 1;
-        if (me.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
-          me.guardianHits = 0;
-          me.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
+      entryBlockedByHost = false;
+      activeRoles = normalized;
+      clearTimers();
+      phase = "waiting";
+      syncActivePlayersFromRoles();
+      setLobbyLocked(false);
+      updateRoomStatusBox();
+      if (players[myRole]) {
+        players[myRole].active = true;
+        players[myRole].charKey = selectedChar;
+        players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
+        players[myRole].mp = MAX_MP;
+        sendCharChange();
+      }
+      updateStatusByPhase();
+    } else if (data.type === "room") {
+      applyRoomSnapshot(data.roles);
+    } else if (data.type === "mode") {
+      if (data.mode === "ffa" || data.mode === "team2v2") {
+        setMode(data.mode, false);
+      }
+    } else if (data.type === "stage") {
+      if (data.stageKey && STAGES[data.stageKey]) {
+        setStage(data.stageKey, false);
+      }
+    } else if (data.type === "start_match") {
+      if (entryBlockedByHost) return;
+      if (data.mode === "ffa" || data.mode === "team2v2") {
+        gameMode = data.mode;
+        modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === gameMode));
+      }
+      if (data.stageKey && STAGES[data.stageKey]) {
+        currentStageKey = data.stageKey;
+        stageButtons.forEach(b => b.classList.toggle("active", b.dataset.stage === currentStageKey));
+      }
+      updateRoomStatusBox();
+      if (phase === "waiting" || phase === "selecting") {
+        startBattlePhase();
+      }
+    } else if (data.type === "full") {
+      statusEl.textContent = "満員です（最大4人まで対戦可能）";
+      roomStatusEl.textContent = "入室中：4 / 4人（満員）";
+    } else if (data.type === "leave") {
+      const leftRole = Number(data.role) || 0;
+      if (leftRole) {
+        seenPeerRoles.delete(leftRole);
+        const remaining = activeRoles.filter(r => r !== leftRole);
+        delete clones[leftRole];
+        if (players[leftRole]) {
+          players[leftRole].active = false;
+          players[leftRole].stocks = 0;
+        }
+        if (!fixedHostThisPc && !isHostPresentInList(remaining)) {
+          entryBlockedByHost = true;
+          activeRoles = [];
+          clearTimers();
+          phase = "waiting";
+          setLobbyLocked(true);
+          updateRoomStatusBox();
+          updateHostControls();
+          updateStatusByPhase();
+          return;
+        }
+        activeRoles = remaining;
+      }
+      updateRoomStatusBox();
+      updateHostControls();
+      if (phase === "playing") {
+        checkMatchEndCondition();
+      } else {
+        updateStatusByPhase();
+      }
+    } else if (data.type === "char") {
+      if (data.role === myRole) return;
+      markPeerActive(data.role);
+      if (players[data.role]) {
+        players[data.role].charKey = data.charKey;
+      }
+    } else if (data.type === "state") {
+      if (phase === "gameover") return;
+      if (!data.player || data.player.role === myRole) return;
+      const targetRole = Number(data.player.role);
+      if (!Number.isInteger(targetRole) || targetRole < 1 || targetRole > MAX_PLAYERS) return;
+      markPeerActive(targetRole);
+      const target = players[targetRole];
+      if (target) {
+        const justStarted = (phase === "playing" && (performance.now() - matchStartedAt) < 600);
+        const prevStocks = target.stocks;
+        Object.assign(target, data.player);
+        target.role = targetRole;
+        target.active = !entryBlockedByHost;
+        if (!target.hasClone) {
+          delete clones[target.role];
+        }
+        if (justStarted) {
+          target.stocks = Math.max(prevStocks, MAX_STOCK);
+          target.percent = 0;
+        }
+        if (!entryBlockedByHost && !activeRoles.includes(target.role)) {
+          activeRoles = [...activeRoles, target.role].sort((a, b) => a - b);
+          updateRoomStatusBox();
+          updateHostControls();
+        }
+        if (phase === "playing" && !justStarted) {
+          checkMatchEndCondition();
+        }
+      }
+    } else if (data.type === "clone") {
+      if (phase === "gameover") return;
+      if (data.ownerRole === myRole) return;
+      if (data.clone && data.clone.active) {
+        clones[data.ownerRole] = data.clone;
+      } else {
+        delete clones[data.ownerRole];
+      }
+    } else if (data.type === "clone_hit") {
+      if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+      if (data.ownerRole !== myRole) return;
+      if (data.attackerRole === myRole || isSameTeam(data.attackerRole, myRole)) return;
+      applyHitToMyClone(data.dmg || 0, data.basePower || 0, data.dir || 1, data.effect || null, data.upAngleMult || 0.62);
+    } else if (data.type === "gameover") {
+      if (entryBlockedByHost) return;
+      if (data.info) {
+        gameOverSent = true;
+        finishGame(data.info);
+      }
+    } else if (data.type === "projectile") {
+      if (phase === "gameover") return;
+      if (data.proj && data.proj.ownerRole !== myRole) {
+        projectiles.push(data.proj);
+      }
+    } else if (data.type === "beam") {
+      if (phase === "gameover") return;
+      if (data.beam && data.beam.ownerRole !== myRole) {
+        beams.push(data.beam);
+      }
+    } else if (data.type === "ring") {
+      if (phase === "gameover") return;
+      if (data.ring && data.ring.ownerRole !== myRole) {
+        ringEffects.push(data.ring);
+      }
+    } else if (data.type === "hit_confirm") {
+      if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+      if (data.attackerRole !== myRole) return;
+      const me = players[myRole];
+      if (!me) return;
+
+      let changed = false;
+      if (me.charKey === "elementalist") {
+        me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
+        changed = true;
+      }
+      if (me.charKey === "guardian" && data.wasLight) {
+        if ((me.invincibleTimer || 0) <= 0) {
+          me.guardianHits = (me.guardianHits || 0) + 1;
+          if (me.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
+            me.guardianHits = 0;
+            me.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
+          }
+          changed = true;
+        }
+      }
+      if (me.charKey === "hammer" && data.wasSmash) {
+        if (me.critActive || me.critReady) {
+          me.hammerCharge = 0;
+          me.critReady = false;
+          me.critActive = false;
+        } else {
+          const gain = data.wasFullCharge ? 30 : 10;
+          me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + gain);
+          if (me.hammerCharge >= HAMMER_MAX_CHARGE) {
+            me.critReady = true;
+          }
         }
         changed = true;
       }
-    }
-    if (me.charKey === "hammer" && data.wasSmash) {
-      if (me.critActive || me.critReady) {
-        me.hammerCharge = 0;
-        me.critReady = false;
-        me.critActive = false;
-      } else {
-        const gain = data.wasFullCharge ? 30 : 10;
-        me.hammerCharge = Math.min(HAMMER_MAX_CHARGE, (me.hammerCharge || 0) + gain);
-        if (me.hammerCharge >= HAMMER_MAX_CHARGE) {
-          me.critReady = true;
+      if (changed) {
+        sendMyState(me, true);
+      }
+    } else if (data.type === "hit") {
+      if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
+      if (data.attackerRole === myRole) return;
+      if (data.targetRole && data.targetRole !== myRole) return;
+      if (isSameTeam(data.attackerRole, myRole)) return;
+
+      const me = players[myRole];
+      if (!me || me.stocks <= 0) return;
+      const spec = CHAR_SPECS[me.charKey] || CHAR_SPECS.fighter;
+
+      if (socket.readyState === WebSocket.OPEN && !data.fromClone) {
+        socket.send(JSON.stringify({
+          type: "hit_confirm",
+          attackerRole: data.attackerRole,
+          targetRole: myRole,
+          wasLight: !!data.wasLight,
+          wasSmash: !!data.wasSmash,
+          wasFullCharge: !!data.wasFullCharge
+        }));
+      }
+
+      if ((me.invincibleTimer || 0) > 0) {
+        return;
+      }
+
+      if (data.effect === "burn") {
+        if (me.shielding && !me.burnedOut) {
+          me.shieldHp -= (data.dmg || 5) * 2.0;
+          if (me.shieldHp <= 0) triggerBurnout(me);
+          sendMyState(me, true);
+          return;
         }
+        burnDebuffs.push({
+          targetRole: myRole,
+          attackerRole: data.attackerRole,
+          ticksLeft: 5,
+          tickTimer: 0,
+          dmgPerTick: 5,
+          dir: data.dir || 1
+        });
+        return;
       }
-      changed = true;
-    }
-    if (changed) {
-      sendMyState(me, true);
-    }
-  } else if (data.type === "hit") {
-    if (phase !== "playing" || entryBlockedByHost || myRole === 0) return;
-    if (data.attackerRole === myRole) return;
-    if (data.targetRole && data.targetRole !== myRole) return;
-    if (isSameTeam(data.attackerRole, myRole)) return;
 
-    const me = players[myRole];
-    if (!me || me.stocks <= 0) return;
-    const spec = CHAR_SPECS[me.charKey] || CHAR_SPECS.fighter;
-
-    if (ws.readyState === WebSocket.OPEN && !data.fromClone) {
-      ws.send(JSON.stringify({
-        type: "hit_confirm",
-        attackerRole: data.attackerRole,
-        targetRole: myRole,
-        wasLight: !!data.wasLight,
-        wasSmash: !!data.wasSmash,
-        wasFullCharge: !!data.wasFullCharge
-      }));
-    }
-
-    if ((me.invincibleTimer || 0) > 0) {
-      return;
-    }
-
-    if (data.effect === "burn") {
-      if (me.shielding && !me.burnedOut) {
-        me.shieldHp -= (data.dmg || 5) * 2.0;
-        if (me.shieldHp <= 0) triggerBurnout(me);
+      if (data.effect === "freeze") {
+        if (me.shielding && !me.burnedOut) {
+          me.shieldHp -= 15;
+          me.vx = (data.dir || 1) * 2.5;
+          if (me.shieldHp <= 0) triggerBurnout(me);
+          sendMyState(me, true);
+          return;
+        }
+        me.frozen = true;
+        me.stun = Math.max(me.stun, 60);
+        me.vx = 0;
+        me.shielding = false;
+        me.smashCharging = false;
         sendMyState(me, true);
         return;
       }
-      burnDebuffs.push({
-        targetRole: myRole,
-        attackerRole: data.attackerRole,
-        ticksLeft: 5,
-        tickTimer: 0,
-        dmgPerTick: 5,
-        dir: data.dir || 1
-      });
-      return;
-    }
 
-    if (data.effect === "freeze") {
-      if (me.shielding && !me.burnedOut) {
-        me.shieldHp -= 15;
-        me.vx = (data.dir || 1) * 2.5;
-        if (me.shieldHp <= 0) triggerBurnout(me);
-        sendMyState(me, true);
-        return;
-      }
-      me.frozen = true;
-      me.stun = Math.max(me.stun, 60);
-      me.vx = 0;
-      me.shielding = false;
-      me.smashCharging = false;
-      sendMyState(me, true);
-      return;
+      applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62);
     }
+  };
+}
 
-    applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62);
+function connectToPassphrase(nextPassphrase, updateUrl = true) {
+  currentPassphrase = sanitizePassphrase(nextPassphrase);
+  passphraseInputEl.value = currentPassphrase;
+  updatePassphraseUI();
+
+  if (updateUrl) {
+    const url = new URL(location.href);
+    if (currentPassphrase) {
+      url.searchParams.set("room", currentPassphrase);
+    } else {
+      url.searchParams.delete("room");
+    }
+    history.replaceState(null, "", url.toString());
   }
-};
+
+  clearTimers();
+  phase = "waiting";
+  myRole = 0;
+  activeRoles = [];
+  seenPeerRoles = new Set();
+  ghostFilterActive = false;
+  entryBlockedByHost = false;
+  winnerInfo = null;
+  gameOverSent = false;
+  projectiles = [];
+  beams = [];
+  ringEffects = [];
+  burnDebuffs = [];
+  clones = {};
+  for (let r = 1; r <= MAX_PLAYERS; r++) {
+    resetSinglePlayer(players[r], r);
+    players[r].active = false;
+  }
+
+  statusEl.textContent = currentPassphrase
+    ? `合言葉「${currentPassphrase}」の部屋に接続中...`
+    : "公開部屋に接続中...";
+  updateRoomStatusBox();
+  updateHostControls();
+
+  const oldWs = ws;
+  const query = currentPassphrase ? `?room=${encodeURIComponent(currentPassphrase)}` : "";
+  const newWs = new WebSocket(wsProto + location.host + ctxPath + "/smash-ws" + query);
+  ws = newWs;
+  attachSocketHandlers(newWs);
+
+  if (oldWs && (oldWs.readyState === WebSocket.OPEN || oldWs.readyState === WebSocket.CONNECTING)) {
+    try {
+      oldWs.close();
+    } catch (ignored) {}
+  }
+}
+
+joinPassphraseBtn.addEventListener("click", () => {
+  connectToPassphrase(passphraseInputEl.value, true);
+});
+
+passphraseInputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    connectToPassphrase(passphraseInputEl.value, true);
+  }
+});
+
+publicRoomBtn.addEventListener("click", () => {
+  connectToPassphrase("", true);
+});
 
 function trySummonClone(me) {
   if (!me || me.charKey !== "summoner") return;
@@ -1487,7 +1636,7 @@ function castSelectedElementMagic(me) {
       hasHitRoles: []
     };
     ringEffects.push(ring);
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "ring", ring }));
     }
     sendMyState(me, true);
@@ -1517,7 +1666,7 @@ function castSelectedElementMagic(me) {
   } else {
     const beam = createBeamObject(me, mode);
     beams.push(beam);
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "beam", beam }));
     }
   }
@@ -1572,7 +1721,7 @@ function triggerAttack(useSmash, chargeRatio = 0) {
 
       beams.push(laserBeam);
 
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: "beam",
           beam: laserBeam
@@ -1585,6 +1734,7 @@ function triggerAttack(useSmash, chargeRatio = 0) {
 
 const down = {};
 window.addEventListener("keydown", e => {
+  if (document.activeElement === passphraseInputEl) return;
   if (entryBlockedByHost || myRole === 0) return;
 
   if ((phase === "waiting" || phase === "selecting") && !down[e.code]) {
@@ -1635,6 +1785,7 @@ window.addEventListener("keyup", e => {
   down[e.code] = false;
 
   if (e.code === "KeyK") {
+    if (document.activeElement === passphraseInputEl) return;
     if (entryBlockedByHost || myRole === 0 || phase !== "playing") return;
     const me = players[myRole];
     if (!me || me.charKey === "enhancer" || me.charKey === "elementalist" || me.charKey === "summoner" || !me.smashCharging) return;
@@ -1671,7 +1822,7 @@ function getMeleeHitbox(p) {
 }
 
 function sendHitToTarget(targetRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
       type: "hit",
       attackerRole: myRole,
@@ -1687,7 +1838,7 @@ function sendHitToTarget(targetRole, dmg, basePower, dir, effect = null, upAngle
 }
 
 function sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62) {
-  if (ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
       type: "clone_hit",
       attackerRole: myRole,
@@ -1721,7 +1872,7 @@ function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAng
 }
 
 function sendMyState(me, force = false) {
-  if (ws.readyState !== WebSocket.OPEN || entryBlockedByHost || !me) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN || entryBlockedByHost || !me) return;
   const now = performance.now();
   if (!force && now - lastStateSentAt < STATE_SEND_INTERVAL_MS) return;
   lastStateSentAt = now;
@@ -1867,7 +2018,7 @@ function updateMyClone(dtScale) {
           hasHitRoles: []
         };
         beams.push(laserBeam);
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "beam", beam: laserBeam }));
         }
       }
@@ -2726,6 +2877,7 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 updateHostLockButtonUI();
+connectToPassphrase(currentPassphrase, false);
 requestAnimationFrame(loop);
 </script>
 </body>
