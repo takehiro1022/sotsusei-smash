@@ -178,7 +178,7 @@ public class SmashSocket {
         return trimmed;
     }
 
-    private String escapeJson(String s) {
+    private static String escapeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
