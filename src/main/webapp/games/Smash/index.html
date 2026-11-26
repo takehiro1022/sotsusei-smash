@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（マップ8種・サイドコメント完全版）</title>
+<title>スマブラ風マルチ対戦（マップ8種・地形遮断＆高精度判定版）</title>
 <style>
   body {
     margin: 0;
@@ -826,6 +826,106 @@ let ringEffects = [];
 let burnDebuffs = [];
 let clones = {};
 let chatMessages = [];
+
+// --- 高精度当たり判定＆地形遮断ユーティリティ ---
+function rectsOverlap(a, b) {
+  return (
+    a.x < b.x + b.w &&
+    a.x + a.w > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.h > b.y
+  );
+}
+
+// 線分 (x1, y1)-(x2, y2) が矩形 (rx, ry, rw, rh) に交差するか（スラブ法）
+function segmentIntersectsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+
+  const checks = [
+    [-dx, x1 - rx],
+    [dx, rx + rw - x1],
+    [-dy, y1 - ry],
+    [dy, ry + rh - y1]
+  ];
+
+  for (let i = 0; i < checks.length; i++) {
+    const p = checks[i][0];
+    const q = checks[i][1];
+    if (Math.abs(p) < 1e-9) {
+      if (q < 0) return false;
+    } else {
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+    }
+  }
+  return t0 <= t1;
+}
+
+function getAllStageObstacles() {
+  const st = getCurrentStage();
+  return [...(st.solids || []), ...(st.platforms || [])];
+}
+
+// 攻撃の始点からターゲット中心へ伸びる線分が、床・壁・台に遮られているか
+function isBlockedByStageSegment(x1, y1, x2, y2) {
+  const obstacles = getAllStageObstacles();
+  for (let i = 0; i < obstacles.length; i++) {
+    const ob = obstacles[i];
+    if (segmentIntersectsRect(x1, y1, x2, y2, ob.x, ob.y, ob.w, ob.h)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 近接ヒットボックスがターゲット矩形に当たるか（矩形重なり＋線分検証）
+function doesMeleeHitEntity(hb, originX, originY, target) {
+  if (!rectsOverlap(hb, target)) return false;
+  const tx = target.x + target.w * 0.5;
+  const ty = target.y + target.h * 0.5;
+  return !isBlockedByStageSegment(originX, originY, tx, ty);
+}
+
+// レーザー・精霊ビームを床・壁・台でクリップ（描画・判定の両方に使用）
+function getClippedBeamRect(bm) {
+  const obstacles = getAllStageObstacles();
+  const bx = bm.x;
+  const by = bm.y;
+  const bw = bm.w;
+  const bh = bm.h;
+  const midY = by + bh * 0.5;
+
+  if (bm.dir === 1) {
+    let endX = bx + bw;
+    const startX = bx;
+    for (let i = 0; i < obstacles.length; i++) {
+      const ob = obstacles[i];
+      if (midY >= ob.y && midY <= ob.y + ob.h && ob.x + ob.w > startX && ob.x < endX) {
+        endX = Math.max(startX, ob.x);
+      }
+    }
+    return { x: startX, y: by, w: Math.max(0, endX - startX), h: bh };
+  } else {
+    let startX = bx;
+    const endX = bx + bw;
+    for (let i = 0; i < obstacles.length; i++) {
+      const ob = obstacles[i];
+      if (midY >= ob.y && midY <= ob.y + ob.h && ob.x < endX && ob.x + ob.w > startX) {
+        startX = Math.min(endX, ob.x + ob.w);
+      }
+    }
+    return { x: startX, y: by, w: Math.max(0, endX - startX), h: bh };
+  }
+}
 
 function canSendOrShowChat() {
   return hasEnteredLobby && phase !== "playing" && !isRoomFullBlocked && !entryBlockedByHost;
@@ -2361,7 +2461,7 @@ function createBeamObject(me, mode) {
   return {
     ownerRole: me.role,
     mode,
-    x: me.facing === 1 ? me.x + me.w + 6 : me.x - beamW - 6,
+    x: me.facing === 1 ? me.x + me.w + 4 : me.x - beamW - 4,
     y: me.y + 9,
     w: beamW,
     h: beamH,
@@ -2491,14 +2591,14 @@ function getMeleeHitbox(p) {
   const isSmash = p.atkType === "smash";
   const isHammerCrit = p.charKey === "hammer" && isSmash && p.critActive;
   let w = isSmash ? 56 : 40;
-  let h = isSmash ? 42 : 28;
+  let h = isSmash ? 40 : 26;
   if (p.charKey === "hammer" && isSmash) {
     w = isHammerCrit ? 84 : 70;
-    h = isHammerCrit ? 50 : 42;
+    h = isHammerCrit ? 48 : 40;
   }
   return {
-    x: p.facing === 1 ? p.x + p.w : p.x - w,
-    y: p.y + (isHammerCrit ? -3 : (isSmash ? 2 : 8)),
+    x: p.facing === 1 ? p.x + p.w - 2 : p.x - w + 2,
+    y: p.y + (isHammerCrit ? -2 : (isSmash ? 2 : 9)),
     w, h, isSmash
   };
 }
@@ -2515,18 +2615,20 @@ function sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect = null, upAn
   }
 }
 
-function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null) {
+function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false) {
   for (const ownerStr of Object.keys(clones)) {
     const ownerRole = Number(ownerStr);
     if (ownerRole === myRole || isSameTeam(myRole, ownerRole) || isRoleSpectating(ownerRole)) continue;
     if (hitOwnerList && hitOwnerList.includes(ownerRole)) continue;
     const cl = clones[ownerRole];
     if (!cl || !cl.active) continue;
-    if (box.x < cl.x + cl.w && box.x + box.w > cl.x && box.y < cl.y + cl.h && box.y + box.h > cl.y) {
-      if (hitOwnerList) hitOwnerList.push(ownerRole);
-      sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect, upAngleMult);
-      return true;
+    if (!rectsOverlap(box, cl)) continue;
+    if (!ignoreStageBlock && originX !== null && originY !== null) {
+      if (isBlockedByStageSegment(originX, originY, cl.x + cl.w * 0.5, cl.y + cl.h * 0.5)) continue;
     }
+    if (hitOwnerList) hitOwnerList.push(ownerRole);
+    sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect, upAngleMult);
+    return true;
   }
   return false;
 }
@@ -2648,18 +2750,20 @@ function updateMyClone(dtScale) {
   if (cl.cooldown > 0) cl.cooldown = Math.max(0, cl.cooldown - dtScale);
 
   if (cl.charKey !== "mage" && cl.atkTimer > 0 && !cl.hasHit) {
-    const hb = { x: cl.facing === 1 ? cl.x + cl.w : cl.x - 38, y: cl.y + 8, w: 38, h: 26 };
+    const hb = { x: cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, y: cl.y + 9, w: 38, h: 24 };
+    const cx = cl.x + cl.w * 0.5;
+    const cy = cl.y + cl.h * 0.5;
     for (const r of getParticipantRoles()) {
       if (r === myRole || isSameTeam(myRole, r)) continue;
       const target = players[r];
       if (!target || !target.active || target.stocks <= 0) continue;
-      if (hb.x < target.x + target.w && hb.x + hb.w > target.x && hb.y < target.y + target.h && hb.y + hb.h > target.y) {
+      if (doesMeleeHitEntity(hb, cx, cy, target)) {
         cl.hasHit = true;
         sendHitToTarget(target.role, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, { fromClone: true });
         break;
       }
     }
-    if (!cl.hasHit && checkHitEnemyClonesByBox(hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing)) cl.hasHit = true;
+    if (!cl.hasHit && checkHitEnemyClonesByBox(hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, null, cx, cy, false)) cl.hasHit = true;
   }
 
   if (cl.percent >= SUMMON_CLONE_MAX_PERCENT || cl.x < -160 || cl.x > canvas.width + 160 || cl.y > canvas.height + 160) {
@@ -2691,24 +2795,41 @@ function updateBeams(dtScale) {
     const bm = beams[i];
     bm.life -= dtScale;
     if (!isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked && !isSpectator && myRole !== 0 && bm.ownerRole === myRole && bm.mode !== "heal") {
+      const hitBox = getClippedBeamRect(bm);
+      const originX = bm.dir === 1 ? hitBox.x : hitBox.x + hitBox.w;
+      const originY = hitBox.y + hitBox.h * 0.5;
+
       for (const r of getParticipantRoles()) {
         if (r === myRole || isSameTeam(myRole, r) || bm.hasHitRoles.includes(r)) continue;
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
-        if (bm.x < target.x + target.w && bm.x + bm.w > target.x && bm.y < target.y + target.h && bm.y + bm.h > target.y) {
-          bm.hasHitRoles.push(r);
-          if (bm.mode === "fire") sendHitToTarget(target.role, 0, 2.5, bm.dir, "burn");
-          else if (bm.mode === "ice") sendHitToTarget(target.role, 4, 0, bm.dir, "freeze");
-          else if (bm.mode === "mage_laser") sendHitToTarget(target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true, fromClone: !!bm.fromClone });
-        }
+        if (!rectsOverlap(hitBox, target)) continue;
+        if (isBlockedByStageSegment(originX, originY, target.x + target.w * 0.5, target.y + target.h * 0.5)) continue;
+
+        bm.hasHitRoles.push(r);
+        if (bm.mode === "fire") sendHitToTarget(target.role, 0, 2.5, bm.dir, "burn");
+        else if (bm.mode === "ice") sendHitToTarget(target.role, 4, 0, bm.dir, "freeze");
+        else if (bm.mode === "mage_laser") sendHitToTarget(target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true, fromClone: !!bm.fromClone });
       }
       if (!bm.hasHitCloneOwners) bm.hasHitCloneOwners = [];
-      checkHitEnemyClonesByBox(bm, bm.mode === "fire" ? 15 : (bm.mode === "ice" ? 4 : (bm.dmg || 8)), bm.mode === "fire" ? 2.5 : (bm.mode === "ice" ? 0 : (bm.basePower || 5.0)), bm.dir, bm.mode === "ice" ? "freeze" : null, 0.55, bm.hasHitCloneOwners);
+      checkHitEnemyClonesByBox(
+        hitBox,
+        bm.mode === "fire" ? 15 : (bm.mode === "ice" ? 4 : (bm.dmg || 8)),
+        bm.mode === "fire" ? 2.5 : (bm.mode === "ice" ? 0 : (bm.basePower || 5.0)),
+        bm.dir,
+        bm.mode === "ice" ? "freeze" : null,
+        0.55,
+        bm.hasHitCloneOwners,
+        originX,
+        originY,
+        false
+      );
     }
     if (bm.life <= 0) beams.splice(i, 1);
   }
 }
 
+// マダンテ（ringEffects）は地形を貫通する
 function updateRings(dtScale) {
   for (let i = ringEffects.length - 1; i >= 0; i--) {
     const rg = ringEffects[i];
@@ -2719,10 +2840,14 @@ function updateRings(dtScale) {
         if (r === myRole || isSameTeam(myRole, r) || rg.hasHitRoles.includes(r)) continue;
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
-        const dx = (target.x + target.w / 2) - rg.cx, dy = (target.y + target.h / 2) - rg.cy;
-        if (Math.hypot(dx, dy) <= curRadius + 24) {
+        const closestX = Math.max(target.x, Math.min(rg.cx, target.x + target.w));
+        const closestY = Math.max(target.y, Math.min(rg.cy, target.y + target.h));
+        const dx = closestX - rg.cx;
+        const dy = closestY - rg.cy;
+        if (Math.hypot(dx, dy) <= curRadius) {
           rg.hasHitRoles.push(r);
-          sendHitToTarget(target.role, rg.dmg, rg.basePower, dx >= 0 ? 1 : -1, null, 0.65);
+          const dirX = ((target.x + target.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
+          sendHitToTarget(target.role, rg.dmg, rg.basePower, dirX, null, 0.65);
         }
       }
       if (!rg.hasHitCloneOwners) rg.hasHitCloneOwners = [];
@@ -2731,10 +2856,14 @@ function updateRings(dtScale) {
         if (ownerRole === myRole || isSameTeam(myRole, ownerRole) || rg.hasHitCloneOwners.includes(ownerRole)) continue;
         const cl = clones[ownerRole];
         if (!cl || !cl.active) continue;
-        const dx = (cl.x + cl.w / 2) - rg.cx, dy = (cl.y + cl.h / 2) - rg.cy;
-        if (Math.hypot(dx, dy) <= curRadius + 24) {
+        const closestX = Math.max(cl.x, Math.min(rg.cx, cl.x + cl.w));
+        const closestY = Math.max(cl.y, Math.min(rg.cy, cl.y + cl.h));
+        const dx = closestX - rg.cx;
+        const dy = closestY - rg.cy;
+        if (Math.hypot(dx, dy) <= curRadius) {
           rg.hasHitCloneOwners.push(ownerRole);
-          sendHitToEnemyClone(ownerRole, rg.dmg, rg.basePower, dx >= 0 ? 1 : -1, null, 0.65);
+          const dirX = ((cl.x + cl.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
+          sendHitToEnemyClone(ownerRole, rg.dmg, rg.basePower, dirX, null, 0.65);
         }
       }
     }
@@ -2795,11 +2924,14 @@ function updateMyPlayer(dtScale) {
   );
 
   if (inActiveFrames && !me.hasHit) {
+    const originX = me.x + me.w * 0.5;
+    const originY = me.y + me.h * 0.5;
+
     for (const r of getParticipantRoles()) {
       if (r === myRole || isSameTeam(myRole, r)) continue;
       const target = players[r];
       if (!target || !target.active || target.stocks <= 0) continue;
-      if (hb.x < target.x + target.w && hb.x + hb.w > target.x && hb.y < target.y + target.h && hb.y + hb.h > target.y) {
+      if (doesMeleeHitEntity(hb, originX, originY, target)) {
         me.hasHit = true;
         if (!hb.isSmash && me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
         if (hb.isSmash) {
@@ -2836,12 +2968,12 @@ function updateMyPlayer(dtScale) {
     if (!me.hasHit) {
       if (hb.isSmash) {
         const ratio = me.smashChargeRatio || 0;
-        if (checkHitEnemyClonesByBox(hb, Math.floor(spec.smashDmg * (1 + ratio * 0.50)), 14.5 * (1 + ratio * 0.45), me.facing)) {
+        if (checkHitEnemyClonesByBox(hb, Math.floor(spec.smashDmg * (1 + ratio * 0.50)), 14.5 * (1 + ratio * 0.45), me.facing, null, 0.62, null, originX, originY, false)) {
           me.hasHit = true; me.smashChargeRatio = 0; sendMyState(me, true);
         }
       } else {
         const lightStats = getEffectiveLightStats(me, spec);
-        if (checkHitEnemyClonesByBox(hb, lightStats.dmg, lightStats.basePower, me.facing)) me.hasHit = true;
+        if (checkHitEnemyClonesByBox(hb, lightStats.dmg, lightStats.basePower, me.facing, null, 0.62, null, originX, originY, false)) me.hasHit = true;
       }
     }
   }
@@ -2870,19 +3002,34 @@ function updateMyPlayer(dtScale) {
 function updateProjectiles(dtScale) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const pr = projectiles[i];
-    pr.x += pr.vx * dtScale; pr.y += pr.vy * dtScale; pr.life -= dtScale;
+    const prevX = pr.x;
+    const prevY = pr.y;
+    pr.x += pr.vx * dtScale;
+    pr.y += pr.vy * dtScale;
+    pr.life -= dtScale;
+
+    const projBox = { x: pr.x, y: pr.y, w: 14, h: 14 };
+    const hitObstacle = getAllStageObstacles().some(ob =>
+      rectsOverlap(projBox, ob) ||
+      segmentIntersectsRect(prevX + 7, prevY + 7, pr.x + 7, pr.y + 7, ob.x, ob.y, ob.w, ob.h)
+    );
+    if (hitObstacle) {
+      projectiles.splice(i, 1);
+      continue;
+    }
+
     if (!isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked && !isSpectator && myRole !== 0 && pr.ownerRole === myRole) {
       for (const r of getParticipantRoles()) {
         if (r === myRole || isSameTeam(myRole, r)) continue;
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
-        if (pr.x < target.x + target.w && pr.x + 14 > target.x && pr.y < target.y + target.h && pr.y + 14 > target.y) {
+        if (rectsOverlap(projBox, target) || segmentIntersectsRect(prevX + 7, prevY + 7, pr.x + 7, pr.y + 7, target.x, target.y, target.w, target.h)) {
           sendHitToTarget(target.role, pr.dmg, pr.basePower, pr.dir);
           projectiles.splice(i, 1); break;
         }
       }
       if (!projectiles[i]) continue;
-      if (checkHitEnemyClonesByBox({ x: pr.x, y: pr.y, w: 14, h: 14 }, pr.dmg, pr.basePower, pr.dir)) {
+      if (checkHitEnemyClonesByBox(projBox, pr.dmg, pr.basePower, pr.dir)) {
         projectiles.splice(i, 1); continue;
       }
     }
@@ -3065,11 +3212,12 @@ function loop(now) {
     ctx.fillText(`${ownerName}クローン(${cSpec.shortName}) ${Math.floor(cl.percent)}/100%`, cl.x - 32, cl.y - 8);
     if (cl.charKey !== "mage" && cl.atkTimer > 0) {
       ctx.fillStyle = "rgba(94, 234, 212, 0.65)";
-      ctx.fillRect(cl.facing === 1 ? cl.x + cl.w : cl.x - 38, cl.y + 8, 38, 26);
+      ctx.fillRect(cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, cl.y + 9, 38, 24);
     }
     ctx.restore();
   }
 
+  // マダンテ：地形貫通
   for (const rg of ringEffects) {
     const alpha = Math.max(0.1, rg.life / rg.maxLife);
     const curRadius = rg.maxRadius * Math.min(1, (1 - Math.max(0, rg.life / rg.maxLife)) * 1.35);
@@ -3092,16 +3240,19 @@ function loop(now) {
   for (const bm of beams) {
     const alpha = Math.max(0.15, bm.life / bm.maxLife);
     const info = MAGIC_INFO[bm.mode] || MAGIC_INFO.fire;
+    const drawRect = bm.mode === "heal" ? bm : getClippedBeamRect(bm);
+    if (drawRect.w <= 0 || drawRect.h <= 0) continue;
+
     ctx.save(); ctx.globalAlpha = alpha;
     if (bm.mode === "mage_laser") {
-      ctx.fillStyle = "rgba(192, 132, 252, 0.78)"; ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
-      ctx.fillStyle = "rgba(240, 171, 252, 0.95)"; ctx.fillRect(bm.x, bm.y + 3, bm.w, bm.h - 6);
+      ctx.fillStyle = "rgba(192, 132, 252, 0.78)"; ctx.fillRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
+      ctx.fillStyle = "rgba(240, 171, 252, 0.95)"; ctx.fillRect(drawRect.x, drawRect.y + 3, drawRect.w, drawRect.h - 6);
     } else if (bm.mode === "heal") {
-      ctx.fillStyle = "rgba(74, 222, 128, 0.45)"; ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
-      ctx.strokeStyle = "#4ade80"; ctx.lineWidth = 2.5; ctx.strokeRect(bm.x, bm.y, bm.w, bm.h);
+      ctx.fillStyle = "rgba(74, 222, 128, 0.45)"; ctx.fillRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
+      ctx.strokeStyle = "#4ade80"; ctx.lineWidth = 2.5; ctx.strokeRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
     } else {
-      ctx.fillStyle = info.beamColor; ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
-      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.strokeRect(bm.x, bm.y, bm.w, bm.h);
+      ctx.fillStyle = info.beamColor; ctx.fillRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.strokeRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
     }
     ctx.restore();
   }
