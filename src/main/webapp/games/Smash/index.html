@@ -211,7 +211,7 @@
   <div class="control-divider"></div>
   <button id="host-lock-btn" class="host-lock-btn" type="button">🔓 固定ホスト：OFF</button>
   <button id="reset-ghost-btn" type="button">🧹 ゴースト枠整理</button>
-  <button id="start-match-btn" disabled>▶ 試合開始（2〜4人で可能）</button>
+  <button id="start-match-btn" disabled>▶ 10秒カウント開始（待機中）</button>
 </div>
 
 <div id="char-select">
@@ -761,17 +761,19 @@ function updateHostControls() {
   });
   resetGhostBtn.disabled = entryBlockedByHost || isMatchActive || !host;
 
-  const enoughPlayers = activeRoles.length >= 2;
-  startMatchBtn.disabled = entryBlockedByHost || isMatchActive || !enoughPlayers || !host;
+  const canStartCountdown = activeRoles.length >= 1;
+  startMatchBtn.disabled = entryBlockedByHost || isMatchActive || phase === "selecting" || !canStartCountdown || !host;
 
   if (entryBlockedByHost) {
     startMatchBtn.textContent = `⏳ ホスト入室待ち`;
-  } else if (!enoughPlayers) {
-    startMatchBtn.textContent = `▶ 試合開始（あと ${2 - activeRoles.length} 人）`;
+  } else if (!canStartCountdown) {
+    startMatchBtn.textContent = `▶ 10秒カウント開始（待機中）`;
   } else if (!host) {
     startMatchBtn.textContent = `▶ 試合開始（ホストのみ）`;
+  } else if (phase === "selecting") {
+    startMatchBtn.textContent = `⏳ カウント中（${selectSecLeft}秒）`;
   } else {
-    startMatchBtn.textContent = `▶ 試合開始（${activeRoles.length}人）`;
+    startMatchBtn.textContent = `▶ 10秒カウント開始（${activeRoles.length}人）`;
   }
 }
 
@@ -937,7 +939,7 @@ function updateStatusByPhase() {
   } else if (phase === "waiting") {
     statusEl.textContent = `${roomLabel} あなたは ${myRole ? myRole + "P" : "観戦"} ${hostLabel}（${modeLabel}・${stageLabel}）｜ 参加中: ${activeRoles.length}/4人`;
   } else if (phase === "selecting") {
-    statusEl.textContent = `${roomLabel} キャラ選択中（${modeLabel}・${stageLabel}）！ 残り ${selectSecLeft} 秒（あなた：${myRole}P・${CHAR_SPECS[selectedChar].name}）`;
+    statusEl.textContent = `${roomLabel} 人数＆キャラ選択猶予（${modeLabel}・${stageLabel}）！ 残り ${selectSecLeft} 秒（あなた：${myRole}P・${CHAR_SPECS[selectedChar].name}）`;
   } else if (phase === "playing") {
     statusEl.textContent = `${roomLabel} バトル中（${modeLabel}・${stageLabel}）！ あなたは ${myRole}P（${CHAR_SPECS[selectedChar].name}）`;
   }
@@ -961,14 +963,28 @@ function startSelectionPhase() {
 
   selectSecLeft = SELECT_SECONDS;
   updateStatusByPhase();
+  updateHostControls();
 
   countdownTimerId = setInterval(() => {
     selectSecLeft--;
     if (selectSecLeft > 0) {
       updateStatusByPhase();
+      updateHostControls();
     } else {
       clearTimers();
-      startBattlePhase();
+      if (activeRoles.length >= 2) {
+        if (isHost() && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "start_match", mode: gameMode, stageKey: currentStageKey }));
+        }
+        startBattlePhase();
+      } else {
+        phase = "waiting";
+        syncActivePlayersFromRoles();
+        setLobbyLocked(false);
+        updateStatusByPhase();
+        updateHostControls();
+        statusEl.textContent = `2人以上そろわなかったため待機へ戻りました（現在 ${activeRoles.length}/4人）`;
+      }
     }
   }, 1000);
 }
@@ -995,13 +1011,17 @@ function startBattlePhase() {
 }
 
 function requestStartBattle() {
-  if (entryBlockedByHost || activeRoles.length < 2 || !isHost()) return;
+  if (entryBlockedByHost || activeRoles.length < 1 || !isHost()) return;
+  if (phase === "playing" || phase === "gameover" || phase === "selecting") return;
+
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "start_match", mode: gameMode, stageKey: currentStageKey }));
+    ws.send(JSON.stringify({
+      type: "countdown_start",
+      mode: gameMode,
+      stageKey: currentStageKey
+    }));
   }
-  if (phase === "waiting" || phase === "selecting") {
-    startBattlePhase();
-  }
+  startSelectionPhase();
 }
 
 startMatchBtn.addEventListener("click", requestStartBattle);
@@ -1244,6 +1264,20 @@ function attachSocketHandlers(socket) {
     } else if (data.type === "stage") {
       if (data.stageKey && STAGES[data.stageKey]) {
         setStage(data.stageKey, false);
+      }
+    } else if (data.type === "countdown_start") {
+      if (entryBlockedByHost) return;
+      if (data.mode === "ffa" || data.mode === "team2v2") {
+        gameMode = data.mode;
+        modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === gameMode));
+      }
+      if (data.stageKey && STAGES[data.stageKey]) {
+        currentStageKey = data.stageKey;
+        stageButtons.forEach(b => b.classList.toggle("active", b.dataset.stage === currentStageKey));
+      }
+      updateRoomStatusBox();
+      if (phase === "waiting") {
+        startSelectionPhase();
       }
     } else if (data.type === "start_match") {
       if (entryBlockedByHost) return;
@@ -2781,7 +2815,7 @@ function loop(now) {
     ctx.fillText(`参加メンバー：${listStr}`, canvas.width / 2, 212);
     ctx.font = "16px sans-serif";
     ctx.fillStyle = "#cbd5e1";
-    ctx.fillText("2人以上そろったら上の「▶ 試合開始」ボタンで2〜4人のいつでも始められます", canvas.width / 2, 250);
+    ctx.fillText("上の「▶ 10秒カウント開始」を押すと10秒の人数集め＆キャラ選択後に開始します", canvas.width / 2, 250);
     ctx.textAlign = "left";
   }
 
@@ -2791,11 +2825,11 @@ function loop(now) {
     ctx.font = "bold 36px sans-serif";
     ctx.fillStyle = "#fbbf24";
     ctx.textAlign = "center";
-    ctx.fillText(`キャラ選択中：あと ${selectSecLeft} 秒（${st.name}）`, canvas.width / 2, 185);
+    ctx.fillText(`開始まであと ${selectSecLeft} 秒（${activeRoles.length}/4人・${st.name}）`, canvas.width / 2, 185);
     ctx.font = "18px sans-serif";
     ctx.fillStyle = "#f8fafc";
     const summary = activeRoles.map(r => `${r}P:${CHAR_SPECS[players[r].charKey].name}`).join(" ／ ");
-    ctx.fillText(summary, canvas.width / 2, 230);
+    ctx.fillText(summary || "参加待機中...", canvas.width / 2, 230);
     ctx.textAlign = "left";
   }
 
