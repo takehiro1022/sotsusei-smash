@@ -9,7 +9,5 @@ RUN cp -r build/classes/* dist/WEB-INF/classes/
 RUN rm -rf /usr/local/tomcat/webapps/*
 RUN jar -cvf /usr/local/tomcat/webapps/sotsusei.war -C dist .
 ENV CATALINA_OPTS="-Xms128m -Xmx256m"
-ENV PORT=8080
-RUN sed -i 's/port="8080"/port="${PORT}"/' /usr/local/tomcat/conf/server.xml
 EXPOSE 8080
-CMD ["catalina.sh", "run"]
+CMD sh -c "sed -i \"s/port=\\\"8080\\\"/port=\\\"\${PORT:-8080}\\\"/\" /usr/local/tomcat/conf/server.xml && exec catalina.sh run"
