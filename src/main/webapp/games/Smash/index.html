@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（完全版）</title>
+<title>スマブラ風マルチ対戦（完全版・コメント機能付き）</title>
 <style>
   body {
     margin: 0;
@@ -121,6 +121,7 @@
   #inline-name-input { width: 130px; }
   #stage-select { min-width: 170px; }
   #char-select-dropdown { min-width: 210px; }
+  #chat-input { width: 340px; max-width: 65vw; }
   .btn {
     background: #2563eb;
     color: #fff;
@@ -264,6 +265,13 @@
 </div>
 
 <canvas id="game" width="1080" height="520"></canvas>
+
+<div class="panel-row hidden" id="chat-row">
+  <span>💬</span>
+  <input id="chat-input" type="text" maxlength="80" placeholder="試合外にコメントを送信（Enterで投稿）">
+  <button id="chat-send-btn" class="btn secondary" type="button">送信</button>
+</div>
+
 <div id="controls-guide">
   操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃 ｜ <b>K</b> スマッシュ（召喚：クローン召喚 / 精霊魔法：魔法発動） ｜ <b>I</b> 魔法切替（精霊魔法） ｜ <b>J</b> バリア
 </div>
@@ -285,6 +293,8 @@ const RESULT_SECONDS = 3;
 const STATE_SEND_INTERVAL_MS = 33;
 const ENHANCE_MAX_LEVEL = 5;
 const ENHANCE_COOLDOWN_MS = 10000;
+const CHAT_LIFETIME_MS = 9000;
+const CHAT_MAX_ITEMS = 6;
 let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
 
 const COLOR_PALETTE = [
@@ -299,7 +309,6 @@ const COLOR_PALETTE = [
 ];
 const ALLOWED_COLORS = COLOR_PALETTE.map(c => c.hex.toLowerCase());
 
-// マップ追加時はここにエントリを足すだけでドロップダウンに反映されます
 const STAGES = {
   battlefield: {
     name: "スタンダード",
@@ -385,7 +394,6 @@ const MAGIC_INFO = {
   magic: { label: "マダンテ", cost: "全MP", minCost: 10, color: "#fde047", beamColor: "rgba(253, 224, 71, 0.75)" }
 };
 
-// キャラ追加時は CHAR_ORDER と CHAR_SPECS に足すだけでドロップダウンに反映されます
 const CHAR_ORDER = ["fighter", "guardian", "mage", "enhancer", "jumper", "elementalist", "hammer", "summoner"];
 const CHAR_SPECS = {
   fighter: {
@@ -545,6 +553,9 @@ const charDescInline = document.getElementById("char-desc-inline");
 const readyToggleBtn = document.getElementById("ready-toggle-btn");
 const backToMapBtn = document.getElementById("back-to-map-btn");
 const readySummaryEl = document.getElementById("ready-summary");
+const chatRow = document.getElementById("chat-row");
+const chatInputEl = document.getElementById("chat-input");
+const chatSendBtn = document.getElementById("chat-send-btn");
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -625,6 +636,67 @@ let beams = [];
 let ringEffects = [];
 let burnDebuffs = [];
 let clones = {};
+let chatMessages = [];
+
+function canSendOrShowChat() {
+  return hasEnteredLobby && phase !== "playing" && !isRoomFullBlocked && !entryBlockedByHost;
+}
+
+function updateChatVisibility() {
+  const allowed = canSendOrShowChat();
+  chatRow.classList.toggle("hidden", !allowed);
+  chatInputEl.disabled = !allowed;
+  chatSendBtn.disabled = !allowed;
+  if (!allowed && document.activeElement === chatInputEl) {
+    chatInputEl.blur();
+  }
+  if (phase === "playing") {
+    chatMessages = [];
+  }
+}
+
+function pushChatMessage(msg) {
+  if (phase === "playing") return;
+  const text = String(msg.text || "").trim().slice(0, 80);
+  if (!text) return;
+  const roleNum = Number(msg.role) || 0;
+  chatMessages.push({
+    sender: sanitizePlayerName(msg.sender, roleNum),
+    color: sanitizeColorHex(msg.color, roleNum || 1),
+    text,
+    expiresAt: performance.now() + CHAT_LIFETIME_MS
+  });
+  if (chatMessages.length > CHAT_MAX_ITEMS) {
+    chatMessages = chatMessages.slice(-CHAT_MAX_ITEMS);
+  }
+}
+
+function sendChatMessage() {
+  if (!canSendOrShowChat()) return;
+  const text = (chatInputEl.value || "").trim().slice(0, 80);
+  if (!text) return;
+
+  const payload = {
+    type: "chat",
+    sender: sanitizePlayerName(myName, myRole),
+    role: myRole,
+    color: sanitizeColorHex(myColor, myRole || 1),
+    text
+  };
+  pushChatMessage(payload);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  }
+  chatInputEl.value = "";
+}
+
+chatSendBtn.addEventListener("click", sendChatMessage);
+chatInputEl.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
 
 function initDropdownOptions() {
   stageSelectEl.innerHTML = "";
@@ -861,6 +933,7 @@ function updatePassphraseUI() {
   mapStepRow.classList.toggle("hidden", isLobby);
   charStepRow.classList.toggle("hidden", isLobby);
   renderColorPalette();
+  updateChatVisibility();
 }
 
 function normalizeRolesList(list) {
@@ -1038,6 +1111,7 @@ function updateLoopUI() {
     charStepRow.classList.add("hidden");
     colorRow.classList.add("hidden");
     roomProfileRow.classList.remove("disabled-area");
+    updateChatVisibility();
     return;
   }
 
@@ -1084,6 +1158,7 @@ function updateLoopUI() {
     : `完了：${validReadyCount}/${participants.length}人`;
 
   renderColorPalette();
+  updateChatVisibility();
 }
 
 function updateRoomStatusBox() {
@@ -1259,6 +1334,7 @@ function startBattlePhase() {
   if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   phase = "playing";
+  chatMessages = [];
   matchStartedAt = performance.now();
   winnerInfo = null;
   gameOverSent = false;
@@ -1639,6 +1715,10 @@ function attachSocketHandlers(socket) {
   socket.onmessage = (e) => {
     if (socket !== ws) return;
     const data = JSON.parse(e.data);
+    if (data.type === "chat") {
+      pushChatMessage(data);
+      return;
+    }
     if (data.type === "role") {
       if (data.full) {
         handleRoomFullRejection(Number(data.maxPlayers) || getRoomCapacity());
@@ -1678,6 +1758,7 @@ function attachSocketHandlers(socket) {
       const joiningMidMatch = (!isPublicLobbyRoom() && (data.phase === "playing" || phase === "playing"));
       if (joiningMidMatch) {
         phase = "playing";
+        chatMessages = [];
         isSpectator = true;
         spectatorRoles.add(myRole);
       } else {
@@ -1765,6 +1846,7 @@ function attachSocketHandlers(socket) {
       } else if (data.phase === "playing") {
         clearTimers();
         phase = "playing";
+        chatMessages = [];
         if (myRole !== 0 && spectatorRoles.has(myRole)) isSpectator = true;
         syncActivePlayersFromRoles();
       }
@@ -2594,6 +2676,35 @@ function renderStocks(stocks, x, y, color) {
   }
 }
 
+function renderChatOverlay(now) {
+  if (phase === "playing") return;
+  chatMessages = chatMessages.filter(m => m.expiresAt > now);
+  if (chatMessages.length === 0) return;
+
+  const startX = 16;
+  let y = canvas.height - 18;
+  ctx.save();
+  ctx.font = "bold 14px sans-serif";
+  ctx.textAlign = "left";
+
+  for (let i = chatMessages.length - 1; i >= 0; i--) {
+    const m = chatMessages[i];
+    const remRatio = Math.max(0.2, Math.min(1, (m.expiresAt - now) / 1500));
+    const line = `💬 ${m.sender}: ${m.text}`;
+    const boxW = Math.min(canvas.width - 32, ctx.measureText(line).width + 20);
+
+    ctx.globalAlpha = remRatio * 0.86;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+    ctx.fillRect(startX, y - 16, boxW, 22);
+
+    ctx.globalAlpha = remRatio;
+    ctx.fillStyle = m.color || "#f8fafc";
+    ctx.fillText(line, startX + 10, y, boxW - 20);
+    y -= 26;
+  }
+  ctx.restore();
+}
+
 function loop(now) {
   const dtScale = Math.min((now - lastFrameTime) / (1000 / 60), 2.5);
   lastFrameTime = now;
@@ -2921,6 +3032,7 @@ function loop(now) {
     }
   }
 
+  renderChatOverlay(now);
   requestAnimationFrame(loop);
 }
 
@@ -2932,10 +3044,12 @@ updateRoomStatusBox();
 if (myName) {
   hasEnteredLobby = true;
   nameGateOverlay.classList.add("hidden");
+  updateChatVisibility();
   connectToPassphrase(currentPassphrase, false);
 } else {
   hasEnteredLobby = false;
   nameGateOverlay.classList.remove("hidden");
+  updateChatVisibility();
   statusEl.textContent = "名前を入力してロビーへ入ってください";
   setTimeout(() => gateNameInput.focus(), 50);
 }
