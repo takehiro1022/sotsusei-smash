@@ -12,7 +12,8 @@ import jakarta.websocket.server.ServerEndpoint;
 
 @ServerEndpoint("/smash-ws")
 public class SmashSocket {
-    private static final int MAX_PLAYERS = 4;
+    private static final int MAX_BATTLE_PLAYERS = 4;
+    private static final int MAX_LOBBY_PLAYERS = 30;
     private static final String DEFAULT_ROOM = "default";
     private static final int MAX_ROOM_ID_LENGTH = 32;
 
@@ -21,15 +22,17 @@ public class SmashSocket {
 
     private static class Room {
         final String id;
-        // Session -> 役割(1..4)
+        final int maxPlayers;
+        // Session -> 役割番号(1..maxPlayers)
         final Map<Session, Integer> players = new ConcurrentHashMap<>();
 
-        Room(String id) {
+        Room(String id, int maxPlayers) {
             this.id = id;
+            this.maxPlayers = maxPlayers;
         }
 
         synchronized int allocateRole() {
-            for (int r = 1; r <= MAX_PLAYERS; r++) {
+            for (int r = 1; r <= maxPlayers; r++) {
                 if (!players.containsValue(r)) {
                     return r;
                 }
@@ -41,9 +44,10 @@ public class SmashSocket {
             StringBuilder sb = new StringBuilder();
             sb.append("{\"type\":\"room\",\"room\":\"")
               .append(escapeJson(id))
-              .append("\",\"roles\":[");
+              .append("\",\"maxPlayers\":").append(maxPlayers)
+              .append(",\"roles\":[");
             boolean first = true;
-            for (int r = 1; r <= MAX_PLAYERS; r++) {
+            for (int r = 1; r <= maxPlayers; r++) {
                 if (players.containsValue(r)) {
                     if (!first) sb.append(",");
                     sb.append(r);
@@ -58,14 +62,15 @@ public class SmashSocket {
     @OnOpen
     public void onOpen(Session session) throws IOException {
         String roomId = extractRoomId(session);
-        Room room = rooms.computeIfAbsent(roomId, Room::new);
+        int capacity = DEFAULT_ROOM.equals(roomId) ? MAX_LOBBY_PLAYERS : MAX_BATTLE_PLAYERS;
+        Room room = rooms.computeIfAbsent(roomId, id -> new Room(id, capacity));
 
         int role;
         synchronized (room) {
             role = room.allocateRole();
             if (role == -1) {
                 cleanupRoomIfEmpty(room);
-                safeSend(session, "{\"type\":\"full\",\"room\":\"" + escapeJson(roomId) + "\"}");
+                safeSend(session, "{\"type\":\"full\",\"room\":\"" + escapeJson(roomId) + "\",\"maxPlayers\":" + room.maxPlayers + "}");
                 try {
                     session.close();
                 } catch (IOException ignored) {}
@@ -75,7 +80,7 @@ public class SmashSocket {
             session.getUserProperties().put("roomId", roomId);
         }
 
-        safeSend(session, "{\"type\":\"role\",\"role\":" + role + ",\"room\":\"" + escapeJson(roomId) + "\"}");
+        safeSend(session, "{\"type\":\"role\",\"role\":" + role + ",\"room\":\"" + escapeJson(roomId) + "\",\"maxPlayers\":" + room.maxPlayers + "}");
         broadcastRoom(room);
     }
 
@@ -89,7 +94,6 @@ public class SmashSocket {
             return;
         }
 
-        // 同じ合言葉の部屋にいる送信元以外の相手セッションへ順次転送
         for (Session s : room.players.keySet()) {
             if (s != null && s.isOpen() && !s.equals(sender)) {
                 safeSend(s, message);
@@ -154,9 +158,7 @@ public class SmashSocket {
         synchronized (session) {
             try {
                 session.getBasicRemote().sendText(msg);
-            } catch (Exception ignored) {
-                // 送信中競合や切断時の例外で他クライアントへの配信を止めない
-            }
+            } catch (Exception ignored) {}
         }
     }
 
