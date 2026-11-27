@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（練習場ステップ進行・ストップ/スタート対応版）</title>
+<title>スマブラ風マルチ対戦（CPU難易度調整・クローン攻撃対応版）</title>
 <style>
   body {
     margin: 0;
@@ -420,7 +420,8 @@ const GUARDIAN_INVINCIBLE_FRAMES = 180;
 const RESPAWN_INVINCIBLE_FRAMES = 300;
 const SUMMON_COOLDOWN_MS = 30000;
 const SUMMON_CLONE_MAX_PERCENT = 100;
-const SUMMON_CANDIDATES = ["fighter", "guardian", "mage", "hammer"];
+// クローン召喚は初期3キャラ（格闘・防御・魔法）のみ
+const SUMMON_CANDIDATES = ["fighter", "guardian", "mage"];
 const COUNTDOWN_SECONDS = 10;
 const RESULT_SECONDS = 3;
 const STATE_SEND_INTERVAL_MS = 33;
@@ -438,8 +439,8 @@ const BOT_LEVEL_LABELS = {
   6: "Lv.6 (中上級・固有技＆ガード)",
   7: "Lv.7 (上級・積極追撃)",
   8: "Lv.8 (熟練・コンボ＆回避)",
-  9: "Lv.9 (達人・高精度立ち回り)",
-  10: "Lv.10 (最強CPU・フル全力)"
+  9: "Lv.9 (達人・立ち回り強化)",
+  10: "Lv.10 (手強いCPU・ギリ勝負)"
 };
 
 const COLOR_PALETTE = [
@@ -3810,12 +3811,37 @@ function handleEntityRingOut(actor) {
 }
 
 // ==========================================
-// 練習場 CPU AI（Lv.1〜10・対戦開始＆非停止時のみ稼働）
+// 練習場 CPU AI（Lv.1〜10 調整版・全レベルでクローン攻撃対応）
 // ==========================================
+function findBotCombatTarget(bot) {
+  const player1 = players[1];
+  const enemyClone = clones[1];
+  const hasPlayer1 = !!(player1 && player1.active && player1.stocks > 0);
+  const hasEnemyClone = !!(enemyClone && enemyClone.active);
+
+  if (!hasPlayer1 && !hasEnemyClone) return null;
+  if (hasPlayer1 && !hasEnemyClone) return player1;
+  if (!hasPlayer1 && hasEnemyClone) return enemyClone;
+
+  const p1Dist = Math.hypot(
+    (player1.x + player1.w * 0.5) - (bot.x + bot.w * 0.5),
+    (player1.y + player1.h * 0.5) - (bot.y + bot.h * 0.5)
+  );
+  const clDist = Math.hypot(
+    (enemyClone.x + enemyClone.w * 0.5) - (bot.x + bot.w * 0.5),
+    (enemyClone.y + enemyClone.h * 0.5) - (bot.y + bot.h * 0.5)
+  );
+
+  // 敵クローンが近くにいればクローンも積極的に狙う（Lv.10でもクローン優先しすぎず適度に散らす）
+  if (clDist < p1Dist * 0.88 && clDist < 240) {
+    return enemyClone;
+  }
+  return player1;
+}
+
 function updatePracticeBot(dtScale, nowMs = performance.now()) {
   if (!isPracticeMode || phase !== "playing" || isPracticeStopped) return;
   const bot = players[2];
-  const target = players[1];
   if (!bot || !bot.active || bot.stocks <= 0) return;
 
   const spec = CHAR_SPECS[bot.charKey] || CHAR_SPECS.fighter;
@@ -3830,101 +3856,103 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
   let wantShield = false;
   let wantDropThrough = false;
 
-  if (target && target.active && target.stocks > 0 && bot.stun <= 0 && !bot.burnedOut) {
+  const target = findBotCombatTarget(bot);
+  const mainPlayer = players[1];
+
+  if (target && bot.stun <= 0 && !bot.burnedOut) {
     const dx = (target.x + target.w * 0.5) - (bot.x + bot.w * 0.5);
     const dy = (target.y + target.h * 0.5) - (bot.y + bot.h * 0.5);
     const absDx = Math.abs(dx);
     const ground = findSolidBeneath(bot.x + bot.w * 0.5, bot.y + bot.h);
     const botCenterX = bot.x + bot.w * 0.5;
-    const isOffstage = botCenterX < ground.x + 12 || botCenterX > ground.x + ground.w - 12 || bot.y + bot.h > ground.y + 18;
+    const isOffstage = botCenterX < ground.x + 14 || botCenterX > ground.x + ground.w - 14 || bot.y + bot.h > ground.y + 20;
 
     if (isOffstage && lv >= 2) {
       const stageMidX = canvas.width * 0.5;
-      wantMoveDir = stageMidX >= botCenterX ? 1 : -1;
-      bot.facing = wantMoveDir;
-      const jumpUrgency = lv >= 7 ? 0.25 : 0.10;
-      if (bot.jumps > 0 && bot.vy > -1 && (bot.y > ground.y - 40 || Math.random() < jumpUrgency * dtScale)) {
+      wantMoveDir = stageMidX >= botCenterX ? 0.65 : -0.65;
+      bot.facing = wantMoveDir >= 0 ? 1 : -1;
+      const jumpChance = 0.04 + lv * 0.012;
+      if (bot.jumps > 0 && bot.vy > -0.5 && (bot.y > ground.y - 25 || Math.random() < jumpChance * dtScale)) {
         bot.vy = spec.jumpPower;
         bot.jumps--;
       }
     } else if (lv === 1) {
       bot.facing = dx >= 0 ? 1 : -1;
-      if (absDx < 52 && Math.abs(dy) < 35 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.015 * dtScale) {
+      if (absDx < 50 && Math.abs(dy) < 35 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.01 * dtScale) {
         executeAttackForEntity(bot, false, 0);
       }
     } else {
-      const speedFactor = 0.32 + (lv - 1) * 0.075;
-      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 220 : 48;
+      // 以前より移動・攻撃頻度を落とし、Lv.10でもギリ勝てる程度に調整
+      const speedFactor = 0.22 + (lv - 1) * 0.048; // Lv.5: ~0.41, Lv.10: ~0.65
+      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 235 : 50;
 
       if (!bot.smashCharging) {
         bot.facing = dx >= 0 ? 1 : -1;
         if (absDx > desiredRange) {
           wantMoveDir = bot.facing * speedFactor;
-        } else if (lv >= 7 && absDx < 24) {
-          wantMoveDir = -bot.facing * 0.35;
         }
       }
 
-      if (dy < -75 && absDx < 160 && bot.jumps > 0 && bot.vy >= -1 && Math.random() < (0.015 + lv * 0.008) * dtScale) {
+      if (dy < -80 && absDx < 140 && bot.jumps > 0 && bot.vy >= -1 && Math.random() < (0.008 + lv * 0.004) * dtScale) {
         bot.vy = spec.jumpPower;
         bot.jumps--;
-      } else if (dy > 65 && absDx < 140 && lv >= 4 && Math.random() < 0.04 * dtScale) {
+      } else if (dy > 70 && absDx < 130 && lv >= 4 && Math.random() < 0.025 * dtScale) {
         wantDropThrough = true;
       }
 
-      if (lv >= 5 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 35 && target.atkTimer > 0 && absDx < 95 && Math.abs(dy) < 55) {
-        const shieldChance = (lv - 4) * 0.11;
+      if (lv >= 6 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 45 && mainPlayer && mainPlayer.atkTimer > 0 && absDx < 82 && Math.abs(dy) < 48) {
+        const shieldChance = (lv - 5) * 0.055; // 最大 ~0.275
         if (Math.random() < shieldChance) {
           wantShield = true;
         }
       }
 
       if (!wantShield && bot.cooldown <= 0 && bot.atkTimer <= 0) {
-        if (bot.charKey === "enhancer" && lv >= 4 && bot.enhanceLevel < ENHANCE_MAX_LEVEL && nowMs >= bot.enhanceCooldownUntil) {
-          if (Math.random() < (0.02 + lv * 0.012) * dtScale) {
+        if (bot.charKey === "enhancer" && lv >= 5 && bot.enhanceLevel < ENHANCE_MAX_LEVEL && nowMs >= bot.enhanceCooldownUntil) {
+          if (Math.random() < (0.01 + lv * 0.006) * dtScale) {
             tryEnhanceSelfForEntity(bot);
           }
         }
-        if (bot.charKey === "summoner" && lv >= 4 && !(clones[2] && clones[2].active) && nowMs >= bot.summonCooldownUntil) {
-          if (Math.random() < (0.02 + lv * 0.015) * dtScale) {
+        if (bot.charKey === "summoner" && lv >= 5 && !(clones[2] && clones[2].active) && nowMs >= bot.summonCooldownUntil) {
+          if (Math.random() < (0.01 + lv * 0.006) * dtScale) {
             trySummonCloneForRole(2);
           }
         }
-        if (bot.charKey === "elementalist" && lv >= 4 && (bot.mp || 0) >= 10) {
-          if (bot.percent >= 70 && (bot.mp || 0) >= 30) bot.magicMode = "heal";
-          else if ((bot.mp || 0) >= 85 && absDx < 190 && lv >= 6) bot.magicMode = "magic";
-          else if (absDx < 245 && Math.abs(dy) < 35) {
-            bot.magicMode = (!target.frozen && lv >= 6 && Math.random() < 0.45) ? "ice" : "fire";
+        if (bot.charKey === "elementalist" && lv >= 5 && (bot.mp || 0) >= 10) {
+          if (bot.percent >= 75 && (bot.mp || 0) >= 30) bot.magicMode = "heal";
+          else if ((bot.mp || 0) >= 90 && absDx < 180 && lv >= 8) bot.magicMode = "magic";
+          else if (absDx < 240 && Math.abs(dy) < 35) {
+            bot.magicMode = (mainPlayer && !mainPlayer.frozen && lv >= 7 && Math.random() < 0.35) ? "ice" : "fire";
           }
-          if ((bot.magicMode === "heal" || (absDx < 250 && Math.abs(dy) < 42) || (bot.magicMode === "magic" && absDx < 195)) &&
-              Math.random() < (0.02 + lv * 0.012) * dtScale) {
+          if ((bot.magicMode === "heal" || (absDx < 245 && Math.abs(dy) < 40) || (bot.magicMode === "magic" && absDx < 185)) &&
+              Math.random() < (0.01 + lv * 0.006) * dtScale) {
             castSelectedElementMagic(bot);
           }
         }
 
         if (bot.smashCharging) {
           const heldMs = Date.now() - bot.smashChargeStart;
-          const releaseWindow = absDx < 76 && Math.abs(dy) < 46;
-          const maxHoldMs = lv >= 8 ? 550 : 900;
+          const releaseWindow = absDx < 70 && Math.abs(dy) < 42;
+          const maxHoldMs = lv >= 8 ? 700 : 1050;
           if (releaseWindow || heldMs >= maxHoldMs) {
             bot.smashCharging = false;
-            executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 1.0));
+            executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 0.75));
           }
         } else {
           const botHammerCrit = bot.charKey === "hammer" && isHammerCritState(bot, nowMs);
-          if (botHammerCrit && absDx < 86 && Math.abs(dy) < 48 && lv >= 3) {
-            executeAttackForEntity(bot, true, 0.25);
-          } else if (lv >= 5 && absDx < 72 && Math.abs(dy) < 44 && (target.percent >= 75 || Math.random() < (lv - 4) * 0.025 * dtScale)) {
-            if (lv >= 7 && Math.random() < 0.45) {
+          if (botHammerCrit && absDx < 82 && Math.abs(dy) < 46 && lv >= 3 && Math.random() < (0.04 + lv * 0.012) * dtScale) {
+            executeAttackForEntity(bot, true, 0.15);
+          } else if (lv >= 5 && absDx < 66 && Math.abs(dy) < 40 && Math.random() < (lv - 4) * 0.011 * dtScale) {
+            if (lv >= 8 && Math.random() < 0.25) {
               bot.smashCharging = true;
               bot.smashChargeStart = Date.now();
             } else {
-              executeAttackForEntity(bot, true, 0.15);
+              executeAttackForEntity(bot, true, 0.1);
             }
           } else {
-            const lightRangeX = bot.charKey === "mage" ? 380 : 54;
-            const lightRangeY = bot.charKey === "mage" ? 28 : 40;
-            const attackRate = 0.025 + lv * 0.018;
+            const lightRangeX = bot.charKey === "mage" ? 360 : 52;
+            const lightRangeY = bot.charKey === "mage" ? 26 : 38;
+            const attackRate = 0.014 + lv * 0.0095; // Lv.5: ~0.06, Lv.10: ~0.11
             if (absDx <= lightRangeX && Math.abs(dy) <= lightRangeY && Math.random() < attackRate * dtScale) {
               executeAttackForEntity(bot, false, 0);
             }
