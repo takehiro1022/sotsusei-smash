@@ -1967,23 +1967,29 @@ function enterPracticeModeSteps() {
   updateStatusByPhase();
 }
 
-function resetPracticeMatchNow() {
+function resetPracticeToMapSelect() {
   if (!isPracticeMode) return;
   clearTimers();
   isPracticeStopped = false;
+  phase = "map_select";
+  readyRoles.clear();
+  winnerInfo = null;
+  gameOverSent = false;
+
   practiceBotChar = practiceBotCharSelect.value || "fighter";
   practiceBotLevel = Math.max(1, Math.min(10, Number(practiceBotLevelSelect.value) || 5));
+
   players[1].charKey = selectedChar;
   players[1].name = sanitizePlayerName(myName, 1);
   players[1].color = sanitizeColorHex(myColor, 1);
+
   players[2].charKey = practiceBotChar;
   players[2].name = `CPU (Lv.${practiceBotLevel})`;
   players[2].color = "#38bdf8";
 
   resetPlayersForNewMatch();
   syncActivePlayersFromRoles();
-  phase = "playing";
-  matchStartedAt = performance.now();
+  clearChatMessages();
   updatePassphraseUI();
   updateLoopUI();
   updateRoomStatusBox();
@@ -2018,7 +2024,7 @@ function startOrResumePracticeBattle() {
     readyRoles.add(2);
     checkAllReadyAndStartCountdown();
   } else if (phase === "gameover") {
-    resetPracticeMatchNow();
+    resetPracticeToMapSelect();
   }
 }
 
@@ -2040,11 +2046,7 @@ practiceStartResumeBtn.addEventListener("click", () => {
   startOrResumePracticeBattle();
 });
 practiceResetBtn.addEventListener("click", () => {
-  if (phase === "playing" || phase === "gameover") {
-    resetPracticeMatchNow();
-  } else {
-    enterPracticeModeSteps();
-  }
+  resetPracticeToMapSelect();
 });
 practiceExitBtn.addEventListener("click", () => {
   exitPracticeToLobby();
@@ -3555,8 +3557,52 @@ function castSelectedElementMagic(me) {
   return true;
 }
 
+function canUseEnhanceAction(actor, nowMs = performance.now()) {
+  if (!actor || actor.charKey !== "enhancer") return false;
+  if (actor.stocks <= 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
+  if ((actor.enhanceLevel || 0) >= ENHANCE_MAX_LEVEL) return false;
+  return nowMs >= (actor.enhanceCooldownUntil || 0);
+}
+
+function canUseSummonAction(actor, nowMs = performance.now()) {
+  if (!actor || actor.charKey !== "summoner") return false;
+  if (actor.stocks <= 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
+  if (clones[actor.role] && clones[actor.role].active) return false;
+  return nowMs >= (actor.summonCooldownUntil || 0);
+}
+
+function canUseElementMagicMode(actor, mode) {
+  if (!actor || actor.charKey !== "elementalist") return false;
+  if (actor.stocks <= 0 || actor.cooldown > 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
+  const info = MAGIC_INFO[mode];
+  if (!info) return false;
+  const curMp = actor.mp || 0;
+  if (mode === "magic") {
+    return curMp >= (info.minCost || 10);
+  }
+  return curMp >= info.cost;
+}
+
+function canUseStandardSmash(actor) {
+  if (!actor || actor.stocks <= 0 || actor.cooldown > 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
+  if (actor.atkTimer > 0 || actor.smashCharging) return false;
+  return !["enhancer", "elementalist", "summoner"].includes(actor.charKey);
+}
+
+function canUseStandardLight(actor) {
+  if (!actor || actor.stocks <= 0 || actor.cooldown > 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
+  if (actor.atkTimer > 0 || actor.smashCharging) return false;
+  return true;
+}
+
 function executeAttackForEntity(actor, useSmash, chargeRatio = 0) {
-  if (!actor || actor.stocks <= 0 || actor.cooldown > 0 || actor.stun > 0 || actor.shielding) return false;
+  if (!actor) return false;
+  if (useSmash) {
+    if (!canUseStandardSmash(actor)) return false;
+  } else {
+    if (!canUseStandardLight(actor)) return false;
+  }
+
   const spec = CHAR_SPECS[actor.charKey];
   actor.hasHit = false;
 
@@ -4237,6 +4283,109 @@ function chooseBotRecoveryDestination(bot, target) {
   return { destX, destY, recPlat, useWarp };
 }
 
+function pickWeightedBotAction(candidates) {
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+  const totalWeight = candidates.reduce((sum, c) => sum + Math.max(0.001, c.weight || 0), 0);
+  let r = Math.random() * totalWeight;
+  for (const c of candidates) {
+    r -= Math.max(0.001, c.weight || 0);
+    if (r <= 0) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
+function buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, isRecovering) {
+  const candidates = [];
+  const absDx = target ? Math.abs((target.x + target.w * 0.5) - (bot.x + bot.w * 0.5)) : Infinity;
+  const absDy = target ? Math.abs((target.y + target.h * 0.5) - (bot.y + bot.h * 0.5)) : Infinity;
+  const alignedHeight = absDy <= 42;
+
+  if (canUseEnhanceAction(bot, nowMs) && lv >= 3) {
+    const lvFactor = 1 - (bot.enhanceLevel || 0) * 0.14;
+    candidates.push({
+      type: "enhance",
+      weight: Math.max(0.004, (isRecovering ? 0.045 : 0.022) * (0.5 + lvRatio) * lvFactor)
+    });
+  }
+
+  if (canUseSummonAction(bot, nowMs) && lv >= 3) {
+    candidates.push({
+      type: "summon",
+      weight: (isRecovering ? 0.04 : 0.022) * (0.5 + lvRatio)
+    });
+  }
+
+  if (bot.charKey === "elementalist" && lv >= 3) {
+    const mp = bot.mp || 0;
+    if (bot.percent >= 65 && canUseElementMagicMode(bot, "heal")) {
+      candidates.push({
+        type: "magic",
+        mode: "heal",
+        weight: (isRecovering ? 0.08 : 0.045) * (0.5 + lvRatio)
+      });
+    }
+    if (absDx < 250 && alignedHeight && canUseElementMagicMode(bot, "fire")) {
+      candidates.push({
+        type: "magic",
+        mode: "fire",
+        weight: 0.045 * (0.45 + lvRatio * 0.8)
+      });
+    }
+    if (absDx < 240 && alignedHeight && canUseElementMagicMode(bot, "ice") && (!mainPlayer || !mainPlayer.frozen)) {
+      candidates.push({
+        type: "magic",
+        mode: "ice",
+        weight: lv >= 5 ? 0.036 * (0.45 + lvRatio * 0.8) : 0.015
+      });
+    }
+    if (mp >= 90 && absDx < 185 && lv >= 7 && canUseElementMagicMode(bot, "magic")) {
+      candidates.push({
+        type: "magic",
+        mode: "magic",
+        weight: 0.03 * lvRatio
+      });
+    }
+  }
+
+  if (!isRecovering && target && canUseStandardLight(bot)) {
+    const lightRangeX = bot.charKey === "mage" ? 350 : (bot.charKey === "fighter" ? 64 : 58);
+    const lightRangeY = bot.charKey === "mage" ? 34 : 42;
+    if (absDx <= lightRangeX && absDy <= lightRangeY) {
+      let lightWeight = 0.035 + lvRatio * 0.095;
+      if (bot.charKey === "fighter") lightWeight *= 1.35;
+      if (bot.charKey === "guardian") lightWeight *= 1.15;
+      if (bot.charKey === "mage" && absDx < 36) lightWeight *= 0.45;
+      candidates.push({
+        type: "light",
+        weight: lightWeight
+      });
+    }
+  }
+
+  if (!isRecovering && target && canUseStandardSmash(bot) && alignedHeight) {
+    const botHammerCrit = bot.charKey === "hammer" && isHammerCritState(bot, nowMs);
+    const smashRangeX = botHammerCrit ? 88 : (bot.charKey === "hammer" ? 72 : 66);
+    if (absDx <= smashRangeX) {
+      if (botHammerCrit) {
+        candidates.push({
+          type: "smash_instant",
+          chargeRatio: 0.12,
+          weight: 0.09 + lvRatio * 0.12
+        });
+      } else if (lv >= 5) {
+        const baseSmashW = (0.012 + lvRatio * 0.032) * (bot.charKey === "hammer" ? 1.2 : 0.9);
+        if (lv >= 8 && Math.random() < 0.25) {
+          candidates.push({ type: "smash_charge", weight: baseSmashW });
+        } else {
+          candidates.push({ type: "smash_instant", chargeRatio: 0.08, weight: baseSmashW });
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
 function updatePracticeBot(dtScale, nowMs = performance.now()) {
   if (!isPracticeMode || phase !== "playing" || isPracticeStopped) return;
   const bot = players[2];
@@ -4282,20 +4431,19 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
       const airControl = 0.65 + lvRatio * 0.35;
       wantMoveDir = recDir * airControl;
 
-      // 復帰手段①：強化タイプなら移動ブースト、精霊魔法なら回復で蓄積軽減
-      if (bot.charKey === "enhancer" && lv >= 3 && bot.enhanceLevel < ENHANCE_MAX_LEVEL && nowMs >= bot.enhanceCooldownUntil && Math.random() < (0.04 + lvRatio * 0.05) * dtScale) {
-        tryEnhanceSelfForEntity(bot);
-      }
-      if (bot.charKey === "elementalist" && lv >= 3 && bot.percent >= 45 && (bot.mp || 0) >= 30 && bot.cooldown <= 0 && Math.random() < (0.03 + lvRatio * 0.05) * dtScale) {
-        bot.magicMode = "heal";
-        castSelectedElementMagic(bot);
-      }
-      // 復帰手段②：召喚タイプはクローンを前方に展開して復帰中の標的をそらす
-      if (bot.charKey === "summoner" && lv >= 3 && !(clones[2] && clones[2].active) && nowMs >= bot.summonCooldownUntil && Math.random() < (0.03 + lvRatio * 0.04) * dtScale) {
-        trySummonCloneForRole(2);
+      const recCandidates = buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, true).filter(
+        c => c.type === "enhance" || c.type === "summon" || (c.type === "magic" && c.mode === "heal")
+      );
+      const chosenRecAction = pickWeightedBotAction(recCandidates);
+      if (chosenRecAction && Math.random() < 0.25 * dtScale) {
+        if (chosenRecAction.type === "enhance") tryEnhanceSelfForEntity(bot);
+        else if (chosenRecAction.type === "summon") trySummonCloneForRole(2);
+        else if (chosenRecAction.type === "magic") {
+          bot.magicMode = chosenRecAction.mode;
+          castSelectedElementMagic(bot);
+        }
       }
 
-      // 復帰手段③：ジャンプ温存＆高度調整（最終ジャンプは低め・緊急時に温存）
       const belowPlatform = botFootY > recPlat.y + 6;
       const fallingFast = bot.vy > 1.8;
       const criticalHeight = bot.y > canvas.height - 135 || bot.x < 70 || bot.x > canvas.width - 70;
@@ -4309,8 +4457,7 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         }
       }
 
-      // 復帰手段④：射程内に迫る敵への牽制（Lv高め＆落下速度が落ち着いているときのみ）
-      if (!useWarp && target && bot.cooldown <= 0 && bot.atkTimer <= 0 && bot.vy < 4.0) {
+      if (!useWarp && target && canUseStandardLight(bot) && bot.vy < 4.0) {
         const tdx = (target.x + target.w * 0.5) - botCenterX;
         const tdy = (target.y + target.h * 0.5) - botCenterY;
         if (Math.abs(tdx) < 150 && Math.abs(tdy) < 38 && Math.random() < (0.015 + lvRatio * 0.035) * dtScale) {
@@ -4357,55 +4504,37 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         }
       }
 
-      if (!wantShield && !wantDropThrough && bot.cooldown <= 0 && bot.atkTimer <= 0) {
-        if (bot.charKey === "enhancer" && lv >= 4 && bot.enhanceLevel < ENHANCE_MAX_LEVEL && nowMs >= bot.enhanceCooldownUntil) {
-          if (Math.random() < (0.012 + lvRatio * 0.025) * dtScale) {
-            tryEnhanceSelfForEntity(bot);
-          }
-        }
-        if (bot.charKey === "summoner" && lv >= 4 && !(clones[2] && clones[2].active) && nowMs >= bot.summonCooldownUntil) {
-          if (Math.random() < (0.012 + lvRatio * 0.025) * dtScale) {
-            trySummonCloneForRole(2);
-          }
-        }
-        if (bot.charKey === "elementalist" && lv >= 3 && (bot.mp || 0) >= 10) {
-          if (bot.percent >= 70 && (bot.mp || 0) >= 30) bot.magicMode = "heal";
-          else if ((bot.mp || 0) >= 95 && absDx < 175 && lv >= 8) bot.magicMode = "magic";
-          else if (absDx < 245 && Math.abs(dy) < 42) {
-            bot.magicMode = (mainPlayer && !mainPlayer.frozen && lv >= 6 && Math.random() < 0.3) ? "ice" : "fire";
-          }
-          if ((bot.magicMode === "heal" || (absDx < 245 && Math.abs(dy) < 42) || (bot.magicMode === "magic" && absDx < 175)) &&
-              Math.random() < (0.012 + lvRatio * 0.028) * dtScale) {
-            castSelectedElementMagic(bot);
-          }
-        }
-
-        const alignedHeight = Math.abs(dy) <= 42;
+      if (!wantShield && !wantDropThrough) {
         if (bot.smashCharging) {
-          const heldMs = Date.now() - bot.smashChargeStart;
-          const releaseWindow = absDx < 76 && alignedHeight;
-          const maxHoldMs = lv >= 8 ? 650 : 950;
-          if (releaseWindow || heldMs >= maxHoldMs) {
+          if (!canUseStandardSmash(bot) && !bot.smashCharging) {
             bot.smashCharging = false;
-            executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 0.65));
+          } else {
+            const heldMs = Date.now() - bot.smashChargeStart;
+            const releaseWindow = absDx < 76 && Math.abs(dy) <= 42;
+            const maxHoldMs = lv >= 8 ? 650 : 950;
+            if (releaseWindow || heldMs >= maxHoldMs) {
+              bot.smashCharging = false;
+              executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 0.65));
+            }
           }
         } else {
-          const botHammerCrit = bot.charKey === "hammer" && isHammerCritState(bot, nowMs);
-          if (botHammerCrit && absDx < 86 && alignedHeight && Math.random() < (0.05 + lvRatio * 0.08) * dtScale) {
-            executeAttackForEntity(bot, true, 0.1);
-          } else if (lv >= 5 && absDx < 68 && alignedHeight && Math.random() < (0.01 + lvRatio * 0.032) * dtScale) {
-            if (lv >= 8 && Math.random() < 0.2) {
+          const candidates = buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, false);
+          const chosen = pickWeightedBotAction(candidates);
+          if (chosen && Math.random() < Math.min(0.85, chosen.weight * 3.2) * dtScale) {
+            if (chosen.type === "enhance") {
+              tryEnhanceSelfForEntity(bot);
+            } else if (chosen.type === "summon") {
+              trySummonCloneForRole(2);
+            } else if (chosen.type === "magic") {
+              bot.magicMode = chosen.mode;
+              castSelectedElementMagic(bot);
+            } else if (chosen.type === "light") {
+              executeAttackForEntity(bot, false, 0);
+            } else if (chosen.type === "smash_instant") {
+              executeAttackForEntity(bot, true, chosen.chargeRatio || 0.08);
+            } else if (chosen.type === "smash_charge") {
               bot.smashCharging = true;
               bot.smashChargeStart = Date.now();
-            } else {
-              executeAttackForEntity(bot, true, 0.08);
-            }
-          } else {
-            const lightRangeX = bot.charKey === "mage" ? 340 : 58;
-            const lightRangeY = bot.charKey === "mage" ? 34 : 42;
-            const attackRate = 0.025 + lvRatio * 0.085;
-            if (absDx <= lightRangeX && Math.abs(dy) <= lightRangeY && Math.random() < attackRate * dtScale) {
-              executeAttackForEntity(bot, false, 0);
             }
           }
         }
@@ -4974,7 +5103,7 @@ function loop(now) {
     ctx.font = "bold 38px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
     ctx.fillText("⏸ ストップ中", canvas.width / 2, 210);
     ctx.font = "17px sans-serif"; ctx.fillStyle = "#f8fafc";
-    ctx.fillText("上の「▶ スタート」で再開、「🔄 リセット」でやり直しができます", canvas.width / 2, 252);
+    ctx.fillText("上の「▶ スタート」で再開、「🔄 リセット」でマップ選択からやり直しができます", canvas.width / 2, 252);
     ctx.textAlign = "left";
   } else if (phase === "gameover" && winnerInfo) {
     ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
