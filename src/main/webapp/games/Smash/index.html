@@ -87,6 +87,7 @@
     text-align: center;
     max-width: 1380px;
   }
+  .hidden { display: none !important; }
   .panel-row {
     display: flex;
     flex-wrap: wrap;
@@ -323,7 +324,7 @@
 </div>
 
 <div id="top-bar">名前を確認中...</div>
-<div id="room-status-box">現在の入室人数：確認中...</div>
+<div id="room-status-box">ロビー節名：公開待機ロビー ｜ 現在の入室人数：確認中...</div>
 
 <div class="panel-row" id="room-profile-row">
   <span>👤</span>
@@ -335,7 +336,7 @@
   <button id="join-passphrase-btn" class="btn" type="button">合言葉入室</button>
   <button id="public-room-btn" class="btn secondary" type="button">公開待機部屋（ロビー）</button>
   <button id="open-practice-btn" class="btn practice" type="button">🤖 練習場</button>
-  <span id="current-passphrase-badge">公開待機部屋（ロビー・最大30人）</span>
+  <span id="current-passphrase-badge">ロビー節名：公開待機ロビー（最大30人）</span>
 </div>
 
 <div class="panel-row hidden" id="practice-control-row">
@@ -405,6 +406,7 @@
 <script>
 const MAX_BATTLE_PLAYERS = 4;
 const MAX_LOBBY_PLAYERS = 30;
+const LOBBY_SECTION_NAME = "公開待機ロビー";
 const MAX_STOCK = 5;
 const MAX_SHIELD = 160;
 const MAX_MP = 100;
@@ -784,7 +786,7 @@ const TRAP_MODES = ["explosion", "stun", "wind"];
 const TRAP_INFO = {
   explosion: {
     label: "爆発",
-    shortLabel: "爆発(20/上)",
+    shortLabel: "爆発(20/%吹飛)",
     color: "#ef4444",
     waveColor: "rgba(239, 68, 68, 0.45)",
     cooldownMs: 1200,
@@ -793,7 +795,7 @@ const TRAP_INFO = {
   },
   stun: {
     label: "スタン",
-    shortLabel: "スタン(3秒)",
+    shortLabel: "スタン(2秒)",
     color: "#facc15",
     waveColor: "rgba(250, 204, 21, 0.40)",
     cooldownMs: 1200,
@@ -802,7 +804,7 @@ const TRAP_INFO = {
   },
   wind: {
     label: "吹き飛ばし",
-    shortLabel: "風(横)",
+    shortLabel: "風(%吹飛)",
     color: "#38bdf8",
     waveColor: "rgba(56, 189, 248, 0.42)",
     cooldownMs: 1000,
@@ -945,7 +947,7 @@ const CHAR_SPECS = {
   trapper: {
     name: "💣 トラッパータイプ",
     shortName: "トラッパー",
-    desc: "I切替(爆発20/スタン3秒/風)・K地上設置(2個まで・3個目で最古が即爆発・自分のみ可視)",
+    desc: "I切替(爆発20/スタン2秒/風)・K地上設置(2個まで・3個目で最古が即爆発・％依存吹飛)",
     color: "#f97316",
     moveAcc: 0.92,
     friction: 0.82,
@@ -1010,8 +1012,19 @@ const joinPassphraseBtn = document.getElementById("join-passphrase-btn");
 const publicRoomBtn = document.getElementById("public-room-btn");
 const currentPassphraseBadgeEl = document.getElementById("current-passphrase-badge");
 
-const ctxPath = "/" + location.pathname.split("/")[1];
-const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
+function buildSmashWebSocketUrl(passphrase) {
+  const host = location.host;
+  if (!host) return null;
+  const proto = location.protocol === "https:" ? "wss://" : "ws://";
+  const segments = (location.pathname || "/").split("/").filter(Boolean);
+  // 最初のセグメントがアプリ名（例: /game/index.html -> /game）として使われる場合のみプレフィックスを付与する
+  const hasAppPrefix =
+    segments.length >= 2 ||
+    (segments.length === 1 && !/\.[a-z0-9]+$/i.test(segments[0]) && segments[0] !== "index");
+  const prefix = hasAppPrefix ? `/${segments[0]}` : "";
+  const query = passphrase ? `?room=${encodeURIComponent(passphrase)}` : "";
+  return `${proto}${host}${prefix}/smash-ws${query}`;
+}
 
 function sanitizePlayerName(raw, fallbackRole = 0) {
   const cleaned = (raw || "").trim().replace(/\s+/g, " ").slice(0, 14);
@@ -1049,6 +1062,12 @@ let practiceBotLevel = 5;
 
 function isPublicLobbyRoom() {
   return !isPracticeMode && !currentPassphrase;
+}
+
+function syncTopDescriptionsVisibility() {
+  const hideTopDescriptions = isPublicLobbyRoom();
+  statusEl.classList.toggle("hidden", hideTopDescriptions);
+  roomStatusEl.classList.toggle("hidden", hideTopDescriptions);
 }
 
 function getRoomCapacity() {
@@ -1499,6 +1518,7 @@ function makePlayer(roleNum, charKey) {
     vx: 0, vy: 0,
     facing: sp.facing,
     jumps: spec.maxJumps || 2,
+    onGround: false,
     dropThroughTimer: 0,
     warpCooldownFrames: 0,
     hazardCooldownFrames: 0,
@@ -1706,6 +1726,7 @@ inlineNameInput.addEventListener("keydown", e => {
 });
 
 function updatePassphraseUI() {
+  syncTopDescriptionsVisibility();
   if (isPracticeMode) {
     const stopTag = isPracticeStopped ? "・⏸ ストップ中" : "";
     currentPassphraseBadgeEl.textContent = `🤖 練習場（CPU Lv.${practiceBotLevel}${stopTag}）`;
@@ -1722,7 +1743,7 @@ function updatePassphraseUI() {
   practiceBotRow.classList.add("hidden");
   currentPassphraseBadgeEl.textContent = currentPassphrase
     ? `合言葉「${currentPassphrase}」（最大4人）`
-    : `公開待機部屋（ロビー・最大${MAX_LOBBY_PLAYERS}人）`;
+    : `ロビー節名：${LOBBY_SECTION_NAME}（最大${MAX_LOBBY_PLAYERS}人）`;
   const isLobby = isPublicLobbyRoom();
   colorRow.classList.toggle("hidden", isLobby);
   mapStepRow.classList.toggle("hidden", isLobby);
@@ -1885,6 +1906,7 @@ function resetSinglePlayer(p, roleNum) {
   p.vx = 0; p.vy = 0;
   p.percent = 0; p.stocks = MAX_STOCK; p.stun = 0;
   p.jumps = spec.maxJumps || 2; p.facing = sp.facing;
+  p.onGround = false;
   p.dropThroughTimer = 0;
   p.warpCooldownFrames = 0;
   p.hazardCooldownFrames = 0;
@@ -2239,6 +2261,11 @@ function updateLoopUI() {
 }
 
 function updateRoomStatusBox() {
+  syncTopDescriptionsVisibility();
+  if (isPublicLobbyRoom()) {
+    roomStatusEl.textContent = "";
+    return;
+  }
   if (isPracticeMode) {
     const phaseLabelMap = {
       map_select: "①マップ決定中",
@@ -2252,13 +2279,6 @@ function updateRoomStatusBox() {
   }
 
   const cap = getRoomCapacity();
-  if (isPublicLobbyRoom()) {
-    const shown = activeRoles.slice(0, 12).map(r => `${getDisplayNameOfRole(r)}(待機${r}P)`).join(" / ");
-    const extra = activeRoles.length > 12 ? ` 外${activeRoles.length - 12}人` : "";
-    roomStatusEl.textContent = `【公開待機部屋（ロビー）】待機中：${activeRoles.length}/${cap}人（${activeRoles.length ? shown + extra : "なし"}） ｜ 合言葉入室 または「🤖 練習場」でCPU対決`;
-    return;
-  }
-
   if (isRoomFullBlocked) {
     roomStatusEl.textContent = `【合言葉「${currentPassphrase}」】満員（${MAX_BATTLE_PLAYERS}/${MAX_BATTLE_PLAYERS}人）のため入室できません`;
     return;
@@ -2288,6 +2308,11 @@ function updateRoomStatusBox() {
 }
 
 function updateStatusByPhase() {
+  syncTopDescriptionsVisibility();
+  if (isPublicLobbyRoom()) {
+    statusEl.textContent = "";
+    return;
+  }
   const cap = getRoomCapacity();
   const displayMyName = myName || "未設定";
   if (isPracticeMode) {
@@ -2301,11 +2326,6 @@ function updateStatusByPhase() {
       const stopText = isPracticeStopped ? "【⏸ ストップ中】" : "バトル中";
       statusEl.textContent = `🤖 [練習場] ${stopText}（${getCurrentStage().name}）！ ${displayMyName}（${CHAR_SPECS[players[1].charKey].shortName}） vs CPU Lv.${practiceBotLevel}（${CHAR_SPECS[players[2].charKey].shortName}）`;
     }
-    return;
-  }
-
-  if (isPublicLobbyRoom()) {
-    statusEl.textContent = `[公開待機部屋（ロビー）] ${displayMyName}（待機${myRole || "-"}P） ｜ 待機中: ${activeRoles.length}/${cap}人`;
     return;
   }
 
@@ -2895,7 +2915,7 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
     return;
   }
 
-  if (effect === "trap_stun_3s") {
+  if (effect === "trap_stun_2s") {
     if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
       targetEntity.shieldHp -= 20;
       if (targetEntity.shieldHp <= 0) triggerBurnout(targetEntity);
@@ -2903,7 +2923,7 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
     }
     if (pierceGuard) targetEntity.shielding = false;
     targetEntity.percent += (dmg || 4);
-    targetEntity.stun = Math.max(targetEntity.stun, 180);
+    targetEntity.stun = Math.max(targetEntity.stun, 120);
     targetEntity.vx = 0;
     targetEntity.vy = 0;
     targetEntity.shielding = false;
@@ -2914,16 +2934,16 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
   if (effect === "trap_wind") {
     if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
       targetEntity.shieldHp -= 18;
-      targetEntity.vx = (dir || 1) * 8.5;
       if (targetEntity.shieldHp <= 0) triggerBurnout(targetEntity);
       return;
     }
     if (pierceGuard) targetEntity.shielding = false;
     targetEntity.percent += (dmg || 8);
-    const kbScale = (1 + targetEntity.percent * 0.015) / spec.weight;
-    targetEntity.vx = (dir || 1) * (basePower || 17.0) * kbScale;
-    targetEntity.vy = -3.4 * Math.max(0.85, kbScale * 0.7);
-    targetEntity.stun = Math.max(targetEntity.stun, 24);
+    const kbScale = (1 + targetEntity.percent * 0.018) / spec.weight;
+    const power = basePower || 13.5;
+    targetEntity.vx = (dir || 1) * power * kbScale;
+    targetEntity.vy = -power * (upAngleMult || 0.45) * kbScale;
+    targetEntity.stun = Math.max(targetEntity.stun, Math.min(45, Math.floor(12 + power * 0.65 * kbScale)));
     targetEntity.shielding = false;
     targetEntity.smashCharging = false;
     return;
@@ -3008,18 +3028,19 @@ function applyHitToCloneByOwner(ownerRole, dmg, basePower, dir, effect = null, u
   if (effect === "freeze") {
     cl.stun = Math.max(cl.stun || 0, 45);
     cl.percent += 4;
-  } else if (effect === "trap_stun_3s") {
-    cl.stun = Math.max(cl.stun || 0, 180);
+  } else if (effect === "trap_stun_2s") {
+    cl.stun = Math.max(cl.stun || 0, 120);
     cl.vx = 0;
     cl.vy = 0;
     cl.percent += (dmg || 4);
   } else if (effect === "trap_wind") {
     const spec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
-    const kbScale = (1 + cl.percent * 0.015) / spec.weight;
+    const kbScale = (1 + cl.percent * 0.018) / spec.weight;
+    const power = basePower || 13.5;
     cl.percent += (dmg || 8);
-    cl.vx = (dir || 1) * (basePower || 17.0) * kbScale;
-    cl.vy = -3.4;
-    cl.stun = Math.max(cl.stun || 0, 24);
+    cl.vx = (dir || 1) * power * kbScale;
+    cl.vy = -power * (upAngleMult || 0.45) * kbScale;
+    cl.stun = Math.max(cl.stun || 0, Math.min(45, Math.floor(12 + power * 0.65 * kbScale)));
   } else if (effect === "burn") {
     cl.percent += 15;
   } else {
@@ -3497,7 +3518,7 @@ function attachSocketHandlers(socket) {
         return;
       }
 
-      if (data.effect === "trap_stun_3s") {
+      if (data.effect === "trap_stun_2s") {
         if (me.charKey === "hammer") {
           const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
           if (hRes.changed) sendMyState(me, true);
@@ -3510,7 +3531,7 @@ function attachSocketHandlers(socket) {
         }
         if (pierceGuard) me.shielding = false;
         me.percent += (data.dmg || 4);
-        me.stun = Math.max(me.stun, 180);
+        me.stun = Math.max(me.stun, 120);
         me.vx = 0;
         me.vy = 0;
         me.shielding = false;
@@ -3526,17 +3547,17 @@ function attachSocketHandlers(socket) {
         }
         if (me.shielding && !me.burnedOut && !pierceGuard) {
           me.shieldHp -= 18;
-          me.vx = (data.dir || 1) * 8.5;
           if (me.shieldHp <= 0) triggerBurnout(me);
           sendMyState(me, true);
           return;
         }
         if (pierceGuard) me.shielding = false;
         me.percent += (data.dmg || 8);
-        const kbScale = (1 + me.percent * 0.015) / spec.weight;
-        me.vx = (data.dir || 1) * (data.basePower || 17.0) * kbScale;
-        me.vy = -3.4 * Math.max(0.85, kbScale * 0.7);
-        me.stun = Math.max(me.stun, 24);
+        const kbScale = (1 + me.percent * 0.018) / spec.weight;
+        const power = data.basePower || 13.5;
+        me.vx = (data.dir || 1) * power * kbScale;
+        me.vy = -power * (data.upAngleMult || 0.45) * kbScale;
+        me.stun = Math.max(me.stun, Math.min(45, Math.floor(12 + power * 0.65 * kbScale)));
         me.shielding = false;
         me.smashCharging = false;
         sendMyState(me, true);
@@ -3588,13 +3609,29 @@ function connectToPassphrase(nextPassphrase, updateUrl = true) {
 
   statusEl.textContent = currentPassphrase
     ? `合言葉「${currentPassphrase}」の部屋に接続中...`
-    : `公開待機部屋（ロビー・最大${MAX_LOBBY_PLAYERS}人）に接続中...`;
+    : `[${LOBBY_SECTION_NAME}]（最大${MAX_LOBBY_PLAYERS}人）に接続中...`;
   updateLoopUI();
   updateRoomStatusBox();
 
   const oldWs = ws;
-  const query = currentPassphrase ? `?room=${encodeURIComponent(currentPassphrase)}` : "";
-  const newWs = new WebSocket(wsProto + location.host + ctxPath + "/smash-ws" + query);
+  const wsUrl = buildSmashWebSocketUrl(currentPassphrase);
+  if (!wsUrl) {
+    statusEl.textContent = "プレビュー環境のため通信サーバーへ接続できません（練習場は利用可能です）";
+    updateLoopUI();
+    updateRoomStatusBox();
+    return;
+  }
+
+  let newWs = null;
+  try {
+    newWs = new WebSocket(wsUrl);
+  } catch (err) {
+    statusEl.textContent = "この環境ではWebSocket接続が制限されています（練習場は利用可能です）";
+    updateLoopUI();
+    updateRoomStatusBox();
+    return;
+  }
+
   ws = newWs;
   attachSocketHandlers(newWs);
 
@@ -3624,7 +3661,7 @@ function trySummonCloneForRole(actorRole) {
   const newClone = {
     ownerRole: actorRole, active: true, charKey: pickedChar,
     x: spawnX, y: actor.y - 6, w: 32, h: 42, vx: 0, vy: -3,
-    facing: actor.facing, jumps: spec.maxJumps || 2, percent: 0, stun: 0, atkTimer: 0, cooldown: 35, hasHit: false,
+    facing: actor.facing, jumps: spec.maxJumps || 2, onGround: false, percent: 0, stun: 0, atkTimer: 0, cooldown: 35, hasHit: false,
     hammerCharge: 0, critReady: false, critActive: false, critStartedAt: 0, critLightHitsAfterExpiry: 0
   };
   clones[actorRole] = newClone;
@@ -3797,11 +3834,11 @@ function detonateTrapInPlace(trap) {
     if (Math.hypot(closestX - cx, closestY - cy) <= blastRadius) {
       const dir = ((target.x + target.w * 0.5) >= cx) ? 1 : -1;
       if (trap.mode === "explosion") {
-        sendHitFromActorToTarget(trap.ownerRole, target.role, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+        sendHitFromActorToTarget(trap.ownerRole, target.role, 20, 12.0, dir, null, 0.85, { wasSmash: true });
       } else if (trap.mode === "stun") {
-        sendHitFromActorToTarget(trap.ownerRole, target.role, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+        sendHitFromActorToTarget(trap.ownerRole, target.role, 4, 0, dir, "trap_stun_2s", 0.2, { wasLight: true });
       } else if (trap.mode === "wind") {
-        sendHitFromActorToTarget(trap.ownerRole, target.role, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+        sendHitFromActorToTarget(trap.ownerRole, target.role, 8, 13.5, dir, "trap_wind", 0.45, { wasSmash: true });
       }
     }
   }
@@ -3816,11 +3853,11 @@ function detonateTrapInPlace(trap) {
     if (Math.hypot(closestX - cx, closestY - cy) <= blastRadius) {
       const dir = ((cl.x + cl.w * 0.5) >= cx) ? 1 : -1;
       if (trap.mode === "explosion") {
-        sendHitFromActorToClone(trap.ownerRole, ownerRole, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+        sendHitFromActorToClone(trap.ownerRole, ownerRole, 20, 12.0, dir, null, 0.85, { wasSmash: true });
       } else if (trap.mode === "stun") {
-        sendHitFromActorToClone(trap.ownerRole, ownerRole, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+        sendHitFromActorToClone(trap.ownerRole, ownerRole, 4, 0, dir, "trap_stun_2s", 0.2, { wasLight: true });
       } else if (trap.mode === "wind") {
-        sendHitFromActorToClone(trap.ownerRole, ownerRole, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+        sendHitFromActorToClone(trap.ownerRole, ownerRole, 8, 13.5, dir, "trap_wind", 0.45, { wasSmash: true });
       }
     }
   }
@@ -3832,7 +3869,6 @@ function tryPlaceTrapForEntity(actor, nowMs = performance.now()) {
   const mode = TRAP_INFO[actor.trapMode] ? actor.trapMode : "explosion";
   const info = TRAP_INFO[mode];
 
-  // 既に2個置いてある状態で3個目を置こうとしたら、一番古いトラップがその場で即爆発する
   const ownedTraps = traps.filter(t => t.ownerRole === actor.role);
   if (ownedTraps.length >= MAX_TRAPS_PER_OWNER) {
     const oldest = ownedTraps[0];
@@ -3898,21 +3934,21 @@ function triggerTrapExplosion(trap, victimRole, victimEntity, isClone = false) {
 
   if (trap.mode === "explosion") {
     if (isClone) {
-      sendHitFromActorToClone(trap.ownerRole, victimRole, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+      sendHitFromActorToClone(trap.ownerRole, victimRole, 20, 12.0, dir, null, 0.85, { wasSmash: true });
     } else {
-      sendHitFromActorToTarget(trap.ownerRole, victimRole, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+      sendHitFromActorToTarget(trap.ownerRole, victimRole, 20, 12.0, dir, null, 0.85, { wasSmash: true });
     }
   } else if (trap.mode === "stun") {
     if (isClone) {
-      sendHitFromActorToClone(trap.ownerRole, victimRole, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+      sendHitFromActorToClone(trap.ownerRole, victimRole, 4, 0, dir, "trap_stun_2s", 0.2, { wasLight: true });
     } else {
-      sendHitFromActorToTarget(trap.ownerRole, victimRole, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+      sendHitFromActorToTarget(trap.ownerRole, victimRole, 4, 0, dir, "trap_stun_2s", 0.2, { wasLight: true });
     }
   } else if (trap.mode === "wind") {
     if (isClone) {
-      sendHitFromActorToClone(trap.ownerRole, victimRole, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+      sendHitFromActorToClone(trap.ownerRole, victimRole, 8, 13.5, dir, "trap_wind", 0.45, { wasSmash: true });
     } else {
-      sendHitFromActorToTarget(trap.ownerRole, victimRole, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+      sendHitFromActorToTarget(trap.ownerRole, victimRole, 8, 13.5, dir, "trap_wind", 0.45, { wasSmash: true });
     }
   }
 }
@@ -3966,7 +4002,6 @@ function updateTraps(dtScale) {
 }
 
 function drawTrapsAndEffects(now) {
-  // トラッパーを使っている本人（myRole）にのみ地雷が見える
   for (const tr of traps) {
     if (tr.ownerRole !== myRole) continue;
     const info = TRAP_INFO[tr.mode] || TRAP_INFO.explosion;
@@ -4222,16 +4257,20 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
   const nextBottom = entity.y + entity.h;
   const visibleDisappearing = getVisibleDisappearingPlatforms(st);
 
+  entity.onGround = false;
+
   if (!canDropPlatforms && entity.vy >= 0) {
     for (const plat of (st.platforms || [])) {
       if (prevBottom <= plat.y + 10 && nextBottom >= plat.y && entity.x + entity.w > plat.x && entity.x < plat.x + plat.w) {
         entity.y = plat.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
+        entity.onGround = true;
         break;
       }
     }
     for (const dp of visibleDisappearing) {
       if (prevBottom <= dp.y + 10 && nextBottom >= dp.y && entity.x + entity.w > dp.x && entity.x < dp.x + dp.w) {
         entity.y = dp.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
+        entity.onGround = true;
         break;
       }
     }
@@ -4246,6 +4285,7 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
       entity.x += (mp.dx || 0);
       entity.vy = 0;
       entity.jumps = maxJumps;
+      entity.onGround = true;
     } else if (entity.x + entity.w > mp.x && entity.x < mp.x + mp.w && entity.y + entity.h > mp.y && entity.y < mp.y + mp.h) {
       if (prevX + entity.w <= mp.x + 12) {
         entity.x = mp.x - entity.w; entity.vx = 0;
@@ -4259,6 +4299,7 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
     if (entity.x + entity.w > solid.x && entity.x < solid.x + solid.w && entity.y + entity.h > solid.y && entity.y < solid.y + solid.h) {
       if (entity.vy >= 0 && prevBottom <= solid.y + 12) {
         entity.y = solid.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
+        entity.onGround = true;
       } else if (entity.vy < 0 && prevTop >= solid.y + solid.h - 12) {
         entity.y = solid.y + solid.h; entity.vy = 0;
       } else if (prevX + entity.w <= solid.x + 12) {
@@ -4292,6 +4333,7 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
         entity.y = sp.y - entity.h;
         entity.vy = sp.bounceVy || -17;
         entity.jumps = maxJumps;
+        entity.onGround = false;
       }
     }
   }
@@ -4319,6 +4361,7 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
         entity.vy = hz.kbY || -12;
         entity.stun = Math.max(entity.stun || 0, 16);
         entity.hazardCooldownFrames = 35;
+        entity.onGround = false;
         break;
       }
     }
@@ -4637,7 +4680,7 @@ function handleEntityRingOut(actor) {
   const maxJumps = getMaxJumpsForPlayer(actor);
   actor.stocks = Math.max(0, actor.stocks - 1);
   actor.percent = 0; actor.vx = 0; actor.vy = 0; actor.stun = 0; actor.frozen = false;
-  actor.jumps = maxJumps; actor.shielding = false; actor.burnedOut = false; actor.shieldHp = MAX_SHIELD;
+  actor.jumps = maxJumps; actor.onGround = false; actor.shielding = false; actor.burnedOut = false; actor.shieldHp = MAX_SHIELD;
   actor.smashCharging = false; actor.hasHit = false; actor.enhanceLevel = 0; actor.enhanceCooldownUntil = 0;
   actor.warpCooldownFrames = 0; actor.hazardCooldownFrames = 0; actor.onIce = false;
   resetHammerCritAndCharge(actor);
@@ -4881,8 +4924,12 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
       const recDir = Math.abs(dxToDest) > 6 ? Math.sign(dxToDest) : (canvas.width * 0.5 >= botCenterX ? 1 : -1);
       bot.facing = recDir;
 
-      const airControl = 0.65 + lvRatio * 0.35;
+      const airControl = 0.72 + lvRatio * 0.28;
       wantMoveDir = recDir * airControl;
+
+      if (dropPlat && (destY > bot.y + 20 || (target && (target.y + target.h * 0.5) - botCenterY > 28)) && bot.dropThroughTimer <= 0) {
+        wantDropThrough = true;
+      }
 
       const recCandidates = buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, true).filter(
         c => c.type === "enhance" || c.type === "summon" || (c.type === "magic" && c.mode === "heal")
@@ -4897,13 +4944,13 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         }
       }
 
-      const belowPlatform = botFootY > recPlat.y + 6;
-      const fallingFast = bot.vy > 1.8;
+      const belowPlatform = botFootY > recPlat.y + 12;
+      const fallingFast = bot.vy > 2.4;
       const criticalHeight = bot.y > canvas.height - 135 || bot.x < 70 || bot.x > canvas.width - 70;
       const keepLastJump = bot.jumps === 1 && !criticalHeight && bot.vy < 4.5 && !useWarp;
 
-      if (bot.jumps > 0 && !keepLastJump && (fallingFast || belowPlatform || criticalHeight)) {
-        const jumpTriggerChance = criticalHeight ? 0.85 : (0.14 + lvRatio * 0.22);
+      if (!wantDropThrough && bot.jumps > 0 && !keepLastJump && (fallingFast || belowPlatform || criticalHeight)) {
+        const jumpTriggerChance = criticalHeight ? 0.85 : (0.11 + lvRatio * 0.18);
         if (Math.random() < jumpTriggerChance * dtScale) {
           bot.vy = spec.jumpPower;
           bot.jumps--;
@@ -4925,7 +4972,7 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
       const dy = targetCenterY - botCenterY;
       const absDx = Math.abs(dx);
 
-      const moveIntensity = 0.58 + lvRatio * 0.34;
+      const moveIntensity = 0.65 + lvRatio * 0.30;
       const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 215 : 44;
 
       if (!bot.smashCharging) {
@@ -4937,13 +4984,13 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         }
       }
 
-      if (dy > 40 && dropPlat && bot.y < 425 && bot.dropThroughTimer <= 0) {
-        const dropChance = 0.08 + lvRatio * 0.16;
+      if (dy > 28 && dropPlat && bot.y < 425 && bot.dropThroughTimer <= 0) {
+        const dropChance = 0.22 + lvRatio * 0.28;
         if (Math.random() < dropChance * dtScale) {
           wantDropThrough = true;
         }
-      } else if (dy < -40 && bot.jumps > 1 && bot.vy >= -1.5) {
-        const jumpProb = 0.04 + lvRatio * 0.10;
+      } else if (dy < -48 && bot.jumps > 1 && bot.vy >= -1.5) {
+        const jumpProb = 0.03 + lvRatio * 0.08;
         if (Math.random() < jumpProb * dtScale) {
           bot.vy = spec.jumpPower;
           bot.jumps--;
@@ -5015,7 +5062,7 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
     bot.vx += wantMoveDir * acc * dtScale;
   }
   if (canMove && wantDropThrough && bot.dropThroughTimer <= 0) {
-    bot.dropThroughTimer = 10;
+    bot.dropThroughTimer = 12;
   }
 
   const botFriction = bot.onIce ? 0.965 : spec.friction;
@@ -5171,6 +5218,65 @@ function renderStocks(stocks, x, y, color) {
   }
 }
 
+function drawPublicLobbyCenterGuide() {
+  const cardW = 680;
+  const cardH = 310;
+  const cardX = (canvas.width - cardW) / 2;
+  const cardY = (canvas.height - cardH) / 2;
+  const uniformColor = "#e2e8f0";
+
+  ctx.save();
+  ctx.fillStyle = "rgba(15, 23, 42, 0.86)";
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(cardX, cardY, cardW, cardH, 14);
+  } else {
+    ctx.rect(cardX, cardY, cardW, cardH);
+  }
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.font = "bold 24px sans-serif";
+  ctx.fillStyle = uniformColor;
+  ctx.fillText(`🏠 ${LOBBY_SECTION_NAME}のご案内`, canvas.width / 2, cardY + 46);
+
+  ctx.font = "bold 14px sans-serif";
+  ctx.fillStyle = uniformColor;
+  ctx.fillText(
+    `現在の待機人数：${activeRoles.length} / ${MAX_LOBBY_PLAYERS}人 ｜ あなたの名前：${myName || "未設定"}`,
+    canvas.width / 2,
+    cardY + 78
+  );
+
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cardX + 44, cardY + 96);
+  ctx.lineTo(cardX + cardW - 44, cardY + 96);
+  ctx.stroke();
+
+  const lines = [
+    "① 対戦したいときは：上の「合言葉」欄に入力して「合言葉入室」を押してください（最大4人）",
+    "② ひとりで練習したいときは：「🤖 練習場」を押すとCPU（Lv.1〜10）と遊べます",
+    "③ 雑談・募集したいときは：右側の「💬 コメント」欄からメッセージを送れます",
+    "④ 名前を変えたいときは：上の入力欄からいつでも変更できます"
+  ];
+
+  ctx.font = "bold 14px sans-serif";
+  ctx.fillStyle = uniformColor;
+  lines.forEach((lineText, idx) => {
+    ctx.fillText(lineText, canvas.width / 2, cardY + 132 + idx * 36);
+  });
+
+  ctx.font = "12px sans-serif";
+  ctx.fillStyle = uniformColor;
+  ctx.fillText("※ 合言葉部屋に入ると、マップ選択・カラー選択・キャラ選択・10秒カウントが始まります", canvas.width / 2, cardY + cardH - 22);
+  ctx.restore();
+}
+
 function loop(now) {
   const dtScale = Math.min((now - lastFrameTime) / (1000 / 60), 2.5);
   lastFrameTime = now;
@@ -5237,45 +5343,44 @@ function loop(now) {
 
   if (Array.isArray(st.movingPlatforms)) {
     for (const mp of st.movingPlatforms) {
-      ctx.fillStyle = "#475569";
+      ctx.fillStyle = "#38bdf8";
       ctx.fillRect(mp.x, mp.y, mp.w, mp.h);
-      ctx.strokeStyle = "#38bdf8";
+      ctx.strokeStyle = "#e0f2fe";
       ctx.lineWidth = 2;
       ctx.strokeRect(mp.x, mp.y, mp.w, mp.h);
-      ctx.fillStyle = "#bae6fd";
-      ctx.fillRect(mp.x + 6, mp.y + 4, mp.w - 12, 3);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(mp.x + 8, mp.y + 5, mp.w - 16, 4);
     }
   }
 
   if (Array.isArray(st.disappearingPlatforms)) {
     for (const dp of st.disappearingPlatforms) {
       if (dp.visible !== false) {
-        ctx.fillStyle = "#f59e0b";
+        ctx.fillStyle = "rgba(192, 132, 252, 0.85)";
         ctx.fillRect(dp.x, dp.y, dp.w, dp.h);
-        ctx.strokeStyle = "#fef08a";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
-      } else {
-        ctx.save();
-        ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = "rgba(251, 191, 36, 0.35)";
+        ctx.strokeStyle = "#f3e8ff";
         ctx.lineWidth = 1.5;
         ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
-        ctx.restore();
+      } else {
+        ctx.setLineDash([4, 5]);
+        ctx.strokeStyle = "rgba(192, 132, 252, 0.35)";
+        ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
+        ctx.setLineDash([]);
       }
     }
   }
 
   if (Array.isArray(st.springs)) {
     for (const sp of st.springs) {
-      ctx.fillStyle = "#ef4444";
+      ctx.fillStyle = "#facc15";
       ctx.fillRect(sp.x, sp.y, sp.w, sp.h);
-      ctx.fillStyle = "#fde047";
-      ctx.fillRect(sp.x - 2, sp.y, sp.w + 4, 5);
+      ctx.strokeStyle = "#fef08a";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sp.x, sp.y, sp.w, sp.h);
       ctx.font = "bold 10px sans-serif";
-      ctx.fillStyle = "#fef08a";
+      ctx.fillStyle = "#0f172a";
       ctx.textAlign = "center";
-      ctx.fillText("▲", sp.x + sp.w * 0.5, sp.y - 3);
+      ctx.fillText("▲▲", sp.x + sp.w * 0.5, sp.y + sp.h - 4);
       ctx.textAlign = "left";
     }
   }
@@ -5284,372 +5389,302 @@ function loop(now) {
     for (const wp of st.warps) {
       ctx.save();
       ctx.strokeStyle = wp.color || "#38bdf8";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(wp.x, wp.y, wp.w, wp.h);
-      ctx.fillStyle = (wp.color || "#38bdf8") + "33";
-      ctx.fillRect(wp.x, wp.y, wp.w, wp.h);
-      ctx.font = "bold 11px sans-serif";
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "rgba(56, 189, 248, 0.16)";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(wp.x + wp.w * 0.5, wp.y + wp.h * 0.5, wp.w * 0.5, wp.h * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillStyle = "#f8fafc";
       ctx.textAlign = "center";
-      ctx.fillText("🌀", wp.x + wp.w * 0.5, wp.y - 5);
+      ctx.fillText("渦", wp.x + wp.w * 0.5, wp.y + wp.h * 0.5 + 4);
       ctx.textAlign = "left";
       ctx.restore();
     }
   }
 
-  for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
-    const p = players[r];
-    if (!p.active || isRoleSpectating(r) || p.stocks <= 0) continue;
-    const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
-    const pColor = getColorOfRole(r);
-    const pName = getDisplayNameOfRole(r);
-    const isInv = (p.invincibleTimer || 0) > 0;
-
-    if (isInv) ctx.fillStyle = Math.floor(Date.now() / 60) % 2 === 0 ? "#fde047" : "#38bdf8";
-    else if (p.frozen) ctx.fillStyle = "#7dd3fc";
-    else if (p.burnedOut && Math.floor(Date.now() / 80) % 2 === 0) ctx.fillStyle = "#94a3b8";
-    else ctx.fillStyle = pColor;
-    ctx.fillRect(p.x, p.y, p.w, p.h);
-
-    if (isInv) {
-      ctx.strokeStyle = "#fef08a"; ctx.lineWidth = 3;
-      ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
-      ctx.font = "bold 11px sans-serif"; ctx.fillStyle = "#fef08a";
-      ctx.fillText(`🛡️ 無敵 ${(p.invincibleTimer / 60).toFixed(1)}s`, p.x - 22, p.y - 24);
-    } else if (p.charKey === "guardian") {
-      ctx.font = "bold 11px sans-serif"; ctx.fillStyle = "#7dd3fc";
-      ctx.fillText(`Lヒット ${p.guardianHits || 0}/${GUARDIAN_INVINCIBLE_HITS}`, p.x - 22, p.y - 24);
-    }
-
-    if (p.charKey === "summoner") {
-      const remMs = Math.max(0, (p.summonCooldownUntil || 0) - now);
-      const activeCl = clones[r];
-      ctx.font = "bold 11px sans-serif";
-      if (activeCl && activeCl.active) {
-        const cName = (CHAR_SPECS[activeCl.charKey] || CHAR_SPECS.fighter).shortName;
-        ctx.fillStyle = "#2dd4bf";
-        ctx.fillText(`👥召喚中:${cName}(${Math.floor(activeCl.percent)}%)`, p.x - 32, p.y - 24);
-      } else if ((r === myRole || (isPracticeMode && r === 2)) && remMs > 0) {
-        ctx.fillStyle = "#cbd5e1";
-        ctx.fillText(`👥召喚CT ${(remMs / 1000).toFixed(1)}s`, p.x - 24, p.y - 24);
-      } else {
-        ctx.fillStyle = "#5eead4";
-        ctx.fillText(`👥K召喚可`, p.x - 16, p.y - 24);
-      }
-    }
-
-    if (p.frozen) {
-      ctx.strokeStyle = "#bae6fd"; ctx.lineWidth = 2.5;
-      ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
-      ctx.font = "bold 11px sans-serif"; ctx.fillStyle = "#bae6fd";
-      ctx.fillText("❄️ 凍結中", p.x - 14, p.y - 36);
-    }
-
-    if (p.charKey === "enhancer") {
-      const lv = p.enhanceLevel || 0;
-      if (lv > 0) {
-        ctx.strokeStyle = "#34d399"; ctx.lineWidth = 1.5 + lv * 0.5;
-        ctx.strokeRect(p.x - 3 - lv, p.y - 3 - lv, p.w + 6 + lv * 2, p.h + 6 + lv * 2);
-      }
-      const remMs = Math.max(0, (p.enhanceCooldownUntil || 0) - now);
-      ctx.font = "bold 11px sans-serif";
-      ctx.fillStyle = lv >= ENHANCE_MAX_LEVEL ? "#34d399" : (remMs > 0 ? "#cbd5e1" : "#fbbf24");
-      ctx.fillText(lv >= ENHANCE_MAX_LEVEL ? `Lv.${lv} MAX` : (remMs > 0 ? `Lv.${lv} (CT ${(remMs / 1000).toFixed(1)}s)` : `Lv.${lv} (K強化可)`), p.x - 24, p.y - 24);
-    }
-
-    if (p.charKey === "elementalist") {
-      const mInfo = MAGIC_INFO[p.magicMode] || MAGIC_INFO.fire;
-      ctx.font = "bold 11px sans-serif"; ctx.fillStyle = mInfo.color;
-      ctx.fillText(`[${mInfo.label}:${mInfo.cost}] MP:${Math.floor(p.mp ?? MAX_MP)}`, p.x - 26, p.y - 22);
-    }
-
-    if (p.charKey === "trapper") {
-      const tInfo = TRAP_INFO[p.trapMode] || TRAP_INFO.explosion;
-      const ownedCount = traps.filter(t => t.ownerRole === r).length;
-      const remMs = Math.max(0, (p.trapCooldownUntil || 0) - now);
-      ctx.font = "bold 11px sans-serif";
-      ctx.fillStyle = tInfo.color;
-      if (r === myRole) {
-        const ctText = remMs > 0 ? ` CT:${(remMs / 1000).toFixed(1)}s` : "";
-        ctx.fillText(`💣[${tInfo.label}] ${ownedCount}/${MAX_TRAPS_PER_OWNER}${ctText}`, p.x - 30, p.y - 22);
-      } else {
-        ctx.fillText(`💣トラッパー`, p.x - 18, p.y - 22);
-      }
-    }
-
-    if (p.charKey === "hammer") {
-      const ch = p.hammerCharge || 0;
-      const isCrit = isHammerCritState(p, now);
-      const absMode = isHammerAbsoluteCritMode(p, now);
-      const absRem = getHammerRemainingAbsSec(p, now);
-      if (isCrit) {
-        ctx.strokeStyle = absMode ? "#fef08a" : "#fb923c";
-        ctx.lineWidth = absMode ? 3.5 : 2.5;
-        ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
-      }
-      ctx.font = "bold 11px sans-serif";
-      ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
-      if (isCrit) {
-        const label = absMode
-          ? `⚡絶対会心 ${absRem.toFixed(1)}s (${ch})`
-          : `🔥会心継続 L:${p.critLightHitsAfterExpiry || 0}/2 (${ch})`;
-        ctx.fillText(label, p.x - 44, p.y - 22);
-      } else {
-        ctx.fillText(`🔨蓄積 ${ch}/${HAMMER_CRIT_THRESHOLD}`, p.x - 34, p.y - 22);
-      }
-    }
-
-    if (p.smashCharging) {
-      const charge = Math.min((Date.now() - p.smashChargeStart) / 1500, 1);
-      const gaugeWidth = 60, gaugeHeight = 8;
-      const gaugeX = p.x + p.w / 2 - gaugeWidth / 2, gaugeY = p.y - 34;
-      ctx.fillStyle = "#222"; ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
-      ctx.fillStyle = charge >= 1 ? "#ff0000" : "#fbbf24"; ctx.fillRect(gaugeX, gaugeY, gaugeWidth * charge, gaugeHeight);
-      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1; ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
-      if (charge >= 1) { ctx.font = "bold 12px sans-serif"; ctx.fillStyle = "#ff4444"; ctx.fillText("MAX!", gaugeX + 12, gaugeY - 5); }
-    }
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(p.facing === 1 ? p.x + p.w - 10 : p.x + 4, p.y + 10, 6, 6);
-
-    if (p.shielding && !p.burnedOut) {
-      const ratio = Math.max(0.25, p.shieldHp / MAX_SHIELD);
-      ctx.beginPath(); ctx.arc(p.x + p.w / 2, p.y + p.h / 2, 34 * ratio + 10, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(56, 189, 248, 0.35)"; ctx.fill();
-      ctx.strokeStyle = "#7dd3fc"; ctx.lineWidth = 2.5; ctx.stroke();
-      ctx.fillStyle = "#1e293b"; ctx.fillRect(p.x - 3, p.y + p.h + 5, 40, 5);
-      ctx.fillStyle = ratio > 0.3 ? "#38bdf8" : "#f97316"; ctx.fillRect(p.x - 3, p.y + p.h + 5, 40 * (p.shieldHp / MAX_SHIELD), 5);
-    }
-
-    if (p.burnedOut) {
-      ctx.font = "bold 12px sans-serif"; ctx.fillStyle = "#fbbf24";
-      ctx.fillText("💫 BURNOUT!", p.x - 18, p.y - 22);
-    }
-
-    const teamTag = (!isPracticeMode && gameMode === "team2v2") ? `[${getTeamOfRole(r)}]` : "";
-    ctx.font = "bold 12px sans-serif"; ctx.fillStyle = "#f8fafc";
-    ctx.fillText(`${pName}${teamTag}(${spec.shortName})`, p.x - 20, p.y - 8);
-
-    const hb = getMeleeHitbox(p, now);
-    if (hb) {
-      const isCritHit = p.charKey === "hammer" && hb.isSmash && isHammerCritState(p, now);
-      ctx.fillStyle = isCritHit ? "rgba(253, 224, 71, 0.85)" : (hb.isSmash ? "rgba(251, 146, 60, 0.72)" : "rgba(254, 240, 138, 0.65)");
-      ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
-      if (isCritHit) { ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 3; ctx.strokeRect(hb.x, hb.y, hb.w, hb.h); }
-    }
-  }
-
-  for (const ownerStr of Object.keys(clones)) {
-    const ownerRole = Number(ownerStr);
-    if (isRoleSpectating(ownerRole)) continue;
-    const cl = clones[ownerRole];
-    if (!cl || !cl.active) continue;
-    const cSpec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
-    const ownerName = getDisplayNameOfRole(ownerRole);
-    ctx.save();
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = cSpec.color; ctx.fillRect(cl.x, cl.y, cl.w, cl.h);
-    const clCrit = cl.charKey === "hammer" && isHammerCritState(cl, now);
-    const clAbs = cl.charKey === "hammer" && isHammerAbsoluteCritMode(cl, now);
-    ctx.strokeStyle = clCrit ? "#fde047" : "#2dd4bf"; ctx.lineWidth = clCrit ? 3 : 2; ctx.setLineDash([4, 3]);
-    ctx.strokeRect(cl.x - 1, cl.y - 1, cl.w + 2, cl.h + 2); ctx.setLineDash([]);
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(cl.facing === 1 ? cl.x + cl.w - 9 : cl.x + 4, cl.y + 9, 5, 5);
-    ctx.font = "bold 11px sans-serif"; ctx.fillStyle = clCrit ? "#fde047" : "#5eead4";
-    const clExtra = cl.charKey === "hammer"
-      ? (clCrit ? (clAbs ? ` 絶対会心${getHammerRemainingAbsSec(cl, now).toFixed(1)}s` : ` L:${cl.critLightHitsAfterExpiry || 0}/2`) : ` 蓄${cl.hammerCharge || 0}`)
-      : "";
-    ctx.fillText(`${ownerName}クローン(${cSpec.shortName}) ${Math.floor(cl.percent)}/100%${clExtra}`, cl.x - 40, cl.y - 8);
-    if (cl.charKey !== "mage" && cl.atkTimer > 0) {
-      ctx.fillStyle = "rgba(94, 234, 212, 0.65)";
-      ctx.fillRect(cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, cl.y + 9, 38, 24);
-    }
-    ctx.restore();
-  }
-
-  drawTrapsAndEffects(now);
-
-  for (const rg of ringEffects) {
-    const alpha = Math.max(0.1, rg.life / rg.maxLife);
-    const curRadius = rg.maxRadius * Math.min(1, (1 - Math.max(0, rg.life / rg.maxLife)) * 1.35);
-    ctx.save();
-    ctx.globalAlpha = alpha * 0.45;
-    const grad = ctx.createRadialGradient(rg.cx, rg.cy, curRadius * 0.15, rg.cx, rg.cy, curRadius);
-    grad.addColorStop(0, "rgba(254, 249, 195, 0.95)");
-    grad.addColorStop(0.6, "rgba(251, 191, 36, 0.7)");
-    grad.addColorStop(1, "rgba(249, 115, 22, 0.1)");
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(rg.cx, rg.cy, curRadius, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = "#fef08a"; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(rg.cx, rg.cy, curRadius, 0, Math.PI * 2); ctx.stroke();
-    ctx.font = "bold 14px sans-serif"; ctx.fillStyle = "#fef08a"; ctx.textAlign = "center";
-    ctx.fillText(`💥 マダンテ (${rg.spentMp}MP / ${rg.dmg}%)`, rg.cx, rg.cy - curRadius - 8);
-    ctx.restore();
-  }
-
-  for (const bm of beams) {
-    const alpha = Math.max(0.15, bm.life / bm.maxLife);
-    const info = MAGIC_INFO[bm.mode] || MAGIC_INFO.fire;
-    const drawRect = bm.mode === "heal" ? bm : getClippedBeamRect(bm);
-    if (drawRect.w <= 0 || drawRect.h <= 0) continue;
-
-    ctx.save(); ctx.globalAlpha = alpha;
-    if (bm.mode === "mage_laser") {
-      ctx.fillStyle = "rgba(192, 132, 252, 0.78)"; ctx.fillRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
-      ctx.fillStyle = "rgba(240, 171, 252, 0.95)"; ctx.fillRect(drawRect.x, drawRect.y + 3, drawRect.w, drawRect.h - 6);
-    } else if (bm.mode === "heal") {
-      ctx.fillStyle = "rgba(74, 222, 128, 0.45)"; ctx.fillRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
-      ctx.strokeStyle = "#4ade80"; ctx.lineWidth = 2.5; ctx.strokeRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
-    } else {
-      ctx.fillStyle = info.beamColor; ctx.fillRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
-      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.strokeRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
-    }
-    ctx.restore();
-  }
-
-  projectiles.forEach(pr => {
-    ctx.fillStyle = "#e879f9";
-    ctx.beginPath(); ctx.arc(pr.x + 7, pr.y + 7, 8, 0, Math.PI * 2); ctx.fill();
-  });
-
   if (isPublicLobbyRoom()) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.74)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#38bdf8"; ctx.textAlign = "center";
-    ctx.fillText(`🏠 公開待機部屋（ロビー・${activeRoles.length} / ${MAX_LOBBY_PLAYERS} 人入室中）`, canvas.width / 2, 165);
-    ctx.font = "17px sans-serif"; ctx.fillStyle = "#cbd5e1";
-    ctx.fillText("上の「🔑 合言葉」欄に同じ合言葉を入力して「合言葉入室」を押すと対人戦へ進めます", canvas.width / 2, 215);
-    ctx.font = "bold 17px sans-serif"; ctx.fillStyle = "#2dd4bf";
-    ctx.fillText("1人でCPU（Lv.1～10）と対決したい場合は上の「🤖 練習場」を押してください", canvas.width / 2, 255);
-    ctx.textAlign = "left";
-  } else if (isRoomFullBlocked) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.84)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 34px sans-serif"; ctx.fillStyle = "#f87171"; ctx.textAlign = "center";
-    ctx.fillText(`🚫 満員（${MAX_BATTLE_PLAYERS}/${MAX_BATTLE_PLAYERS}人）のため入れません`, canvas.width / 2, 185);
-    ctx.font = "17px sans-serif"; ctx.fillStyle = "#cbd5e1";
-    ctx.fillText("別の合言葉を入力するか、「公開待機部屋（ロビー）」へ戻ってください", canvas.width / 2, 230);
-    ctx.textAlign = "left";
-  } else if (entryBlockedByHost) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 30px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
-    ctx.fillText("🔒 ホストが入室するまで入れません", canvas.width / 2, 210);
-    ctx.textAlign = "left";
-  } else if (phase === "map_select") {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#38bdf8"; ctx.textAlign = "center";
-    const prefix = isPracticeMode ? "🤖 [練習場] " : "";
-    ctx.fillText(`${prefix}🗺️ ステップ1：マップ決定中（${st.name}）`, canvas.width / 2, 180);
-    ctx.font = "17px sans-serif"; ctx.fillStyle = "#f8fafc";
-    ctx.fillText(isHost() ? "マップを選んで「このマップでキャラ選択へ」を押してください" : "ホストがマップを決定するのを待っています...", canvas.width / 2, 225);
-    ctx.textAlign = "left";
-  } else if (phase === "char_select") {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#4ade80"; ctx.textAlign = "center";
-    const participants = getParticipantRoles();
-    const doneCount = participants.filter(r => readyRoles.has(r)).length;
-    const prefix = isPracticeMode ? "🤖 [練習場] " : "";
-    ctx.fillText(`${prefix}🎭 ステップ2：キャラ選択＆完了待ち（${doneCount} / ${participants.length} 人完了）`, canvas.width / 2, 165);
-    ctx.font = "18px sans-serif"; ctx.fillStyle = "#f8fafc";
-    const summary = participants.map(r => {
-      const mark = readyRoles.has(r) ? "✅" : "⏳";
-      return `${mark}${getDisplayNameOfRole(r)}:${CHAR_SPECS[players[r].charKey].shortName}`;
-    }).join(" ／ ");
-    ctx.fillText(summary || "参加待機中...", canvas.width / 2, 210);
-    ctx.font = "16px sans-serif"; ctx.fillStyle = "#cbd5e1";
-    ctx.fillText(`マップ：${st.name} ｜ 「✅ 完了にする」を押すと10秒カウントが始まります`, canvas.width / 2, 250);
-    ctx.textAlign = "left";
-  } else if (phase === "countdown") {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 40px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
-    ctx.fillText(`⏱️ 全員完了！ 開始まで ${countdownLeft} 秒`, canvas.width / 2, 185);
-    ctx.font = "18px sans-serif"; ctx.fillStyle = "#f8fafc";
-    ctx.fillText(`マップ：${st.name}`, canvas.width / 2, 230);
-    ctx.textAlign = "left";
-  } else if (phase === "playing" && isPracticeMode && isPracticeStopped) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.52)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 38px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
-    ctx.fillText("⏸ ストップ中", canvas.width / 2, 210);
-    ctx.font = "17px sans-serif"; ctx.fillStyle = "#f8fafc";
-    ctx.fillText("上の「▶ スタート」で再開、「🔄 リセット」でマップ選択からやり直しができます", canvas.width / 2, 252);
-    ctx.textAlign = "left";
-  } else if (phase === "gameover" && winnerInfo) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = "bold 44px sans-serif"; ctx.textAlign = "center";
-    if (winnerInfo.type === "team") {
-      const isA = winnerInfo.winnerTeam === "A";
-      ctx.fillStyle = isA ? "#38bdf8" : "#f97316";
-      ctx.fillText(isA ? "Aチーム（1P・2P）WIN!" : "Bチーム（3P・4P）WIN!", canvas.width / 2, 190);
-    } else {
-      ctx.fillStyle = getColorOfRole(winnerInfo.winnerRole);
-      ctx.fillText(`${getDisplayNameOfRole(winnerInfo.winnerRole)} WIN!`, canvas.width / 2, 190);
-    }
-    ctx.font = "17px sans-serif"; ctx.fillStyle = "#fbbf24";
-    ctx.fillText(
-      `${resultSecLeft} 秒後にマップ選択へ戻ります...`,
-      canvas.width / 2, 245
-    );
-    ctx.textAlign = "left";
-  } else if (!isPracticeMode && phase === "playing" && isSpectator) {
-    ctx.font = "bold 16px sans-serif"; ctx.fillStyle = "#38bdf8"; ctx.textAlign = "center";
-    ctx.fillText("👀 観戦中（試合終了後に自動で参加へ切り替わります）", canvas.width / 2, 85);
-    ctx.textAlign = "left";
+    drawPublicLobbyCenterGuide();
+    requestAnimationFrame(loop);
+    return;
   }
 
-  if (!isPublicLobbyRoom() && !isRoomFullBlocked) {
-    const hudPositions = {
-      1: { x: 35, y: 40 },
-      2: { x: 295, y: 40 },
-      3: { x: 565, y: 40 },
-      4: { x: 825, y: 40 }
-    };
-    for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
+  if (!entryBlockedByHost && !isRoomFullBlocked) {
+    for (const r of getParticipantRoles()) {
       const p = players[r];
-      if (!p.active || isRoleSpectating(r)) continue;
-      const pos = hudPositions[r];
+      if (!p || !p.active || p.stocks <= 0) continue;
+      if (p.charKey === "hammer") {
+        ensureHammerCritState(p, now);
+      }
       const pColor = getColorOfRole(r);
       const pName = getDisplayNameOfRole(r);
-      const teamLabel = (!isPracticeMode && gameMode === "team2v2") ? ` [${getTeamOfRole(r)}]` : "";
-      ctx.font = "bold 18px sans-serif"; ctx.fillStyle = pColor;
-      ctx.fillText(`${pName}${teamLabel}: ${p.percent}%`, pos.x, pos.y);
-      renderStocks(p.stocks, pos.x + 6, pos.y + 20, pColor);
-      if (p.charKey === "elementalist") {
-        ctx.font = "bold 13px sans-serif"; ctx.fillStyle = "#f472b6";
-        ctx.fillText(`MP: ${Math.floor(p.mp ?? MAX_MP)}/${MAX_MP}`, pos.x + 115, pos.y + 24);
+
+      ctx.save();
+      if ((p.invincibleTimer || 0) > 0) ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now * 0.035);
+
+      ctx.fillStyle = pColor;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+
+      if (gameMode === "team2v2" && !isPracticeMode) {
+        const team = getTeamOfRole(r);
+        ctx.strokeStyle = team === "A" ? "#38bdf8" : "#f43f5e";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
       }
-      if (p.charKey === "hammer") {
-        const ch = p.hammerCharge || 0;
-        const isCrit = isHammerCritState(p, now);
-        const absMode = isHammerAbsoluteCritMode(p, now);
-        ctx.font = "bold 13px sans-serif"; ctx.fillStyle = isCrit ? "#fde047" : "#fb923c";
-        if (isCrit) {
-          ctx.fillText(absMode ? `絶対会心 ${getHammerRemainingAbsSec(p, now).toFixed(1)}s` : `会心(L:${p.critLightHitsAfterExpiry || 0}/2)`, pos.x + 115, pos.y + 24);
-        } else {
-          ctx.fillText(`蓄積: ${ch}/${HAMMER_CRIT_THRESHOLD}`, pos.x + 115, pos.y + 24);
+
+      if (p.frozen) {
+        ctx.fillStyle = "rgba(125, 211, 252, 0.55)";
+        ctx.fillRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
+        ctx.strokeStyle = "#e0f2fe";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
+      }
+
+      ctx.fillStyle = "#0f172a";
+      const eyeX = p.facing === 1 ? p.x + p.w - 11 : p.x + 5;
+      ctx.fillRect(eyeX, p.y + 10, 6, 6);
+
+      if (p.shielding && !p.burnedOut) {
+        const radius = Math.max(10, 34 * (p.shieldHp / MAX_SHIELD));
+        ctx.beginPath();
+        ctx.arc(p.x + p.w / 2, p.y + p.h / 2, radius, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(125, 211, 252, 0.28)";
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = "#e0f2fe";
+        ctx.stroke();
+      }
+
+      const hb = getMeleeHitbox(p, now);
+      if (hb) {
+        const isHammerCritAtk = p.charKey === "hammer" && hb.isSmash && isHammerCritState(p, now);
+        ctx.fillStyle = isHammerCritAtk ? "rgba(250, 204, 21, 0.62)" : (hb.isSmash ? "rgba(251, 191, 36, 0.45)" : "rgba(255, 255, 255, 0.35)");
+        ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
+        ctx.strokeStyle = isHammerCritAtk ? "#fef08a" : (hb.isSmash ? "#fbbf24" : "#ffffff");
+        ctx.lineWidth = isHammerCritAtk ? 3 : 2;
+        ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
+      }
+
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+      const teamPrefix = (gameMode === "team2v2" && !isPracticeMode) ? `[${getTeamOfRole(r)}]` : "";
+      const botPrefix = (isPracticeMode && r === 2) ? "[CPU]" : "";
+      ctx.fillText(`${teamPrefix}${botPrefix}${pName}`, p.x + p.w / 2, p.y - 8);
+      ctx.textAlign = "left";
+      ctx.restore();
+    }
+
+    for (const ownerStr of Object.keys(clones)) {
+      const ownerRole = Number(ownerStr);
+      if (isRoleSpectating(ownerRole)) continue;
+      const cl = clones[ownerRole];
+      if (!cl || !cl.active) continue;
+      if (cl.charKey === "hammer") {
+        ensureHammerCritState(cl, now);
+      }
+      const ownerColor = getColorOfRole(ownerRole);
+      ctx.save();
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = ownerColor;
+      ctx.fillRect(cl.x, cl.y, cl.w, cl.h);
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cl.x, cl.y, cl.w, cl.h);
+      ctx.setLineDash([]);
+      if (cl.atkTimer > 0) {
+        const chb = { x: cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, y: cl.y + 9, w: 38, h: 24 };
+        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+        ctx.fillRect(chb.x, chb.y, chb.w, chb.h);
+      }
+      ctx.font = "bold 11px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillText(`${getDisplayNameOfRole(ownerRole)}分身`, cl.x + cl.w / 2, cl.y - 6);
+      ctx.textAlign = "left";
+      ctx.restore();
+    }
+
+    for (const pr of projectiles) {
+      ctx.fillStyle = pr.color || "#38bdf8";
+      ctx.beginPath();
+      ctx.arc(pr.x + 7, pr.y + 7, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (const bm of beams) {
+      if (isRoleSpectating(bm.ownerRole)) continue;
+      const alpha = Math.max(0.15, bm.life / bm.maxLife);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (bm.mode === "mage_laser") {
+        const clipped = getClippedBeamRect(bm);
+        ctx.fillStyle = "rgba(192, 132, 252, 0.85)";
+        ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
+        ctx.fillStyle = "#f5d0fe";
+        ctx.fillRect(clipped.x, clipped.y + 3, clipped.w, Math.max(2, clipped.h - 6));
+      } else if (bm.mode === "heal") {
+        ctx.fillStyle = MAGIC_INFO.heal.beamColor;
+        ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
+      } else {
+        const clipped = getClippedBeamRect(bm);
+        const info = MAGIC_INFO[bm.mode] || MAGIC_INFO.fire;
+        ctx.fillStyle = info.beamColor;
+        ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
+      }
+      ctx.restore();
+    }
+
+    for (const rg of ringEffects) {
+      if (isRoleSpectating(rg.ownerRole)) continue;
+      const progress = 1 - Math.max(0, rg.life / rg.maxLife);
+      const curRadius = rg.maxRadius * Math.min(1, progress * 1.35);
+      const alpha = Math.max(0.1, rg.life / rg.maxLife);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(rg.cx, rg.cy, Math.max(6, curRadius), 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(253, 224, 71, 0.22)";
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#fde047";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawTrapsAndEffects(now);
+
+    const hudRoles = isPracticeMode ? [1, 2] : activeRoles;
+    const hudCount = Math.max(1, hudRoles.length);
+    const slotW = Math.min(250, Math.floor((canvas.width - 40) / hudCount));
+    const totalHudW = slotW * hudCount;
+    const startX = Math.floor((canvas.width - totalHudW) / 2);
+
+    hudRoles.forEach((r, idx) => {
+      const p = players[r];
+      if (!p) return;
+      const x = startX + idx * slotW + 8;
+      const y = canvas.height - 84;
+      const pColor = getColorOfRole(r);
+      const pName = getDisplayNameOfRole(r);
+      const specHud = isRoleSpectating(r);
+      const teamTag = (gameMode === "team2v2" && !isPracticeMode) ? `[${getTeamOfRole(r)}]` : "";
+      const botTag = (isPracticeMode && r === 2) ? "[CPU]" : "";
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+      ctx.fillRect(x - 6, y - 16, slotW - 14, 74);
+
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillStyle = pColor;
+      ctx.fillText(`${teamTag}${botTag}${pName} (${CHAR_SPECS[p.charKey].shortName})${specHud ? " [観戦]" : ""}`, x, y);
+
+      if (!specHud) {
+        renderStocks(p.stocks, x + 6, y + 14, pColor);
+        ctx.font = "bold 20px sans-serif";
+        ctx.fillStyle = p.percent >= 100 ? "#ef4444" : (p.percent >= 50 ? "#fbbf24" : "#f8fafc");
+        ctx.fillText(`${Math.floor(p.percent)}%`, x, y + 40);
+
+        if (p.charKey === "enhancer") {
+          const remSec = Math.max(0, ((p.enhanceCooldownUntil || 0) - now) / 1000);
+          const cdText = (p.enhanceLevel || 0) >= ENHANCE_MAX_LEVEL ? "MAX" : (remSec > 0 ? `CT:${remSec.toFixed(1)}s` : "K可");
+          ctx.font = "bold 11px sans-serif";
+          ctx.fillStyle = "#34d399";
+          ctx.fillText(`強化Lv.${p.enhanceLevel || 0}/${ENHANCE_MAX_LEVEL}(${cdText})`, x + 78, y + 38);
+        } else if (p.charKey === "hammer") {
+          ensureHammerCritState(p, now);
+          const inCrit = isHammerCritState(p, now);
+          const absMode = isHammerAbsoluteCritMode(p, now);
+          const remSec = getHammerRemainingAbsSec(p, now);
+          const resetHitsLeft = Math.max(0, HAMMER_EXPIRED_LIGHT_RESET_COUNT - (p.critLightHitsAfterExpiry || 0));
+          ctx.font = "bold 11px sans-serif";
+          if (inCrit && absMode) {
+            ctx.fillStyle = "#facc15";
+            ctx.fillText(`会心発動中(絶対${remSec.toFixed(1)}s)`, x + 74, y + 38);
+          } else if (inCrit && !absMode) {
+            ctx.fillStyle = "#fb923c";
+            ctx.fillText(`会心継続(L残${resetHitsLeft}/スマ消滅)`, x + 74, y + 38);
+          } else {
+            ctx.fillStyle = "#fb923c";
+            ctx.fillText(`会心:${p.hammerCharge || 0}/${HAMMER_CRIT_THRESHOLD}`, x + 78, y + 38);
+          }
+        } else if (p.charKey === "summoner") {
+          const remSec = Math.max(0, ((p.summonCooldownUntil || 0) - now) / 1000);
+          const cloneAlive = !!(clones[r] && clones[r].active);
+          ctx.font = "bold 11px sans-serif";
+          ctx.fillStyle = "#2dd4bf";
+          ctx.fillText(cloneAlive ? "分身:出現中" : (remSec > 0 ? `召喚CT:${remSec.toFixed(1)}s` : "召喚:K可"), x + 78, y + 38);
+        } else if (p.charKey === "elementalist") {
+          const mInfo = MAGIC_INFO[p.magicMode] || MAGIC_INFO.fire;
+          ctx.font = "bold 11px sans-serif";
+          ctx.fillStyle = mInfo.color;
+          ctx.fillText(`MP:${Math.floor(p.mp ?? MAX_MP)} [${mInfo.label}]`, x + 78, y + 38);
+        } else if (p.charKey === "trapper") {
+          const tInfo = TRAP_INFO[p.trapMode] || TRAP_INFO.explosion;
+          const remSec = Math.max(0, ((p.trapCooldownUntil || 0) - now) / 1000);
+          const activeCount = traps.filter(t => t.ownerRole === r).length;
+          ctx.font = "bold 11px sans-serif";
+          ctx.fillStyle = tInfo.color;
+          ctx.fillText(`[${tInfo.label}] 罠${activeCount}/${MAX_TRAPS_PER_OWNER}${remSec > 0 ? `(${remSec.toFixed(1)}s)` : ""}`, x + 76, y + 38);
         }
       }
-      if (p.charKey === "guardian") {
-        ctx.font = "bold 13px sans-serif"; ctx.fillStyle = (p.invincibleTimer || 0) > 0 ? "#fde047" : "#7dd3fc";
-        ctx.fillText((p.invincibleTimer || 0) > 0 ? `無敵: ${(p.invincibleTimer / 60).toFixed(1)}s` : `L無敵: ${p.guardianHits || 0}/5`, pos.x + 115, pos.y + 24);
-      }
-      if (p.charKey === "summoner") {
-        const cl = clones[r];
-        const remMs = Math.max(0, (p.summonCooldownUntil || 0) - now);
-        ctx.font = "bold 13px sans-serif"; ctx.fillStyle = cl && cl.active ? "#2dd4bf" : "#94a3b8";
-        ctx.fillText(cl && cl.active ? `召喚: ${Math.floor(cl.percent)}%` : ((r === myRole || (isPracticeMode && r === 2)) && remMs > 0 ? `CT: ${(remMs / 1000).toFixed(0)}s` : `召喚: 待機`), pos.x + 115, pos.y + 24);
-      }
-      if (p.charKey === "trapper") {
-        const tInfo = TRAP_INFO[p.trapMode] || TRAP_INFO.explosion;
-        const ownedCount = traps.filter(t => t.ownerRole === r).length;
-        ctx.font = "bold 13px sans-serif"; ctx.fillStyle = tInfo.color;
-        ctx.fillText(r === myRole ? `${tInfo.label} (${ownedCount}/2)` : `罠: 潜伏中`, pos.x + 115, pos.y + 24);
-      }
+    });
+
+    if (isSpectator && phase === "playing") {
+      ctx.save();
+      ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+      ctx.fillRect(canvas.width / 2 - 190, 14, 380, 32);
+      ctx.font = "bold 14px sans-serif";
+      ctx.fillStyle = "#38bdf8";
+      ctx.textAlign = "center";
+      ctx.fillText("👀 観戦モード中（次の試合から参加できます）", canvas.width / 2, 35);
+      ctx.restore();
+    }
+
+    if (isPracticeMode && phase === "playing" && isPracticeStopped) {
+      ctx.save();
+      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+      ctx.fillRect(canvas.width / 2 - 175, canvas.height / 2 - 28, 350, 56);
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(canvas.width / 2 - 175, canvas.height / 2 - 28, 350, 56);
+      ctx.font = "bold 20px sans-serif";
+      ctx.fillStyle = "#fbbf24";
+      ctx.textAlign = "center";
+      ctx.fillText("⏸ 練習場ストップ中", canvas.width / 2, canvas.height / 2 + 7);
+      ctx.restore();
+    }
+
+    if (phase === "countdown") {
+      ctx.save();
+      ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+      ctx.fillRect(canvas.width / 2 - 210, canvas.height / 2 - 44, 420, 88);
+      ctx.font = "bold 28px sans-serif";
+      ctx.fillStyle = "#fbbf24";
+      ctx.textAlign = "center";
+      ctx.fillText(`試合開始まで ${countdownLeft} 秒`, canvas.width / 2, canvas.height / 2 - 4);
+      ctx.font = "bold 14px sans-serif";
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(`マップ：${getCurrentStage().name}`, canvas.width / 2, canvas.height / 2 + 24);
+      ctx.restore();
+    }
+
+    if (phase === "gameover" && winnerInfo) {
+      ctx.save();
+      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+      ctx.fillRect(canvas.width / 2 - 230, canvas.height / 2 - 48, 460, 96);
+      ctx.font = "bold 30px sans-serif";
+      ctx.fillStyle = "#fbbf24";
+      ctx.textAlign = "center";
+      const winText = winnerInfo.type === "team"
+        ? `${winnerInfo.winnerTeam === "A" ? "Aチーム（1P・2P）" : "Bチーム（3P・4P）"} WIN!`
+        : `${getDisplayNameOfRole(winnerInfo.winnerRole)} WIN!`;
+      ctx.fillText(winText, canvas.width / 2, canvas.height / 2 - 6);
+      ctx.font = "bold 14px sans-serif";
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(`${resultSecLeft}秒後にマップ選択へ戻ります...`, canvas.width / 2, canvas.height / 2 + 26);
+      ctx.restore();
     }
   }
 
@@ -5662,11 +5697,7 @@ updatePassphraseUI();
 updateLoopUI();
 updateRoomStatusBox();
 updateStatusByPhase();
-if (myName) {
-  hasEnteredLobby = true;
-  nameGateOverlay.classList.add("hidden");
-  connectToPassphrase(currentPassphrase, false);
-}
+renderChatLogDOM();
 requestAnimationFrame(loop);
 </script>
 </body>
