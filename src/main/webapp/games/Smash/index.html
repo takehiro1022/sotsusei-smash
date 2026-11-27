@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（5秒絶対会心・被弾蓄積＆リセット・クローン対応版）</title>
+<title>スマブラ風マルチ対戦（ロビー練習場・CPU Lv.1～10対応版）</title>
 <style>
   body {
     margin: 0;
@@ -120,8 +120,9 @@
   }
   #passphrase-input { width: 150px; }
   #inline-name-input { width: 130px; }
-  #stage-select { min-width: 185px; }
-  #char-select-dropdown { min-width: 210px; }
+  #stage-select, #practice-stage-select { min-width: 165px; }
+  #char-select-dropdown, #practice-my-char-select, #practice-bot-char-select { min-width: 185px; }
+  #practice-bot-level-select { min-width: 135px; }
   .btn {
     background: #2563eb;
     color: #fff;
@@ -145,6 +146,12 @@
     border-color: #4ade80;
   }
   .btn.success:hover:not(:disabled) { background: #15803d; }
+  .btn.practice {
+    background: #0d9488;
+    border-color: #2dd4bf;
+    color: #fff;
+  }
+  .btn.practice:hover:not(:disabled) { background: #0f766e; }
   .btn.ready-active {
     background: #d97706;
     border-color: #fbbf24;
@@ -324,10 +331,21 @@
   <button id="save-inline-name-btn" class="btn secondary" type="button">名前変更</button>
   <div class="divider"></div>
   <span>🔑</span>
-  <input id="passphrase-input" type="text" maxlength="32" placeholder="合言葉（空で待機部屋）">
+  <input id="passphrase-input" type="text" maxlength="32" placeholder="合言葉（空でロビー）">
   <button id="join-passphrase-btn" class="btn" type="button">合言葉入室</button>
-  <button id="public-room-btn" class="btn secondary" type="button">公開待機部屋</button>
-  <span id="current-passphrase-badge">公開待機部屋（最大30人）</span>
+  <button id="public-room-btn" class="btn secondary" type="button">公開待機部屋（ロビー）</button>
+  <button id="open-practice-btn" class="btn practice" type="button">🤖 練習場</button>
+  <span id="current-passphrase-badge">公開待機部屋（ロビー・最大30人）</span>
+</div>
+
+<div class="panel-row hidden" id="practice-panel-row">
+  <span>🤖 練習場（CPU戦）：</span>
+  <label>マップ <select id="practice-stage-select"></select></label>
+  <label>自分 <select id="practice-my-char-select"></select></label>
+  <label>CPUキャラ <select id="practice-bot-char-select"></select></label>
+  <label>CPUレベル <select id="practice-bot-level-select"></select></label>
+  <button id="practice-start-btn" class="btn success" type="button">⚔️ 対決開始 / リセット</button>
+  <button id="practice-exit-btn" class="btn warn" type="button">🚪 ロビーへ戻る</button>
 </div>
 
 <div class="panel-row hidden" id="color-row">
@@ -389,13 +407,13 @@ const MAX_MP = 100;
 const HAMMER_CRIT_THRESHOLD = 120;
 const HAMMER_HIT_GAIN = 20;
 const HAMMER_CRIT_BONUS_DMG = 40;
-const HAMMER_CRIT_ABS_DURATION_MS = 5000; // 会心突入から5秒間は絶対会心モード
-const HAMMER_HIT_SMASH_GAIN = 10; // 被弾：スマッシュで蓄積+10
-const HAMMER_HIT_LIGHT_GAIN = 5; // 被弾：L攻撃で蓄積+5
-const HAMMER_EXPIRED_LIGHT_RESET_COUNT = 2; // 5秒経過後：L攻撃2回でリセット
+const HAMMER_CRIT_ABS_DURATION_MS = 5000;
+const HAMMER_HIT_SMASH_GAIN = 10;
+const HAMMER_HIT_LIGHT_GAIN = 5;
+const HAMMER_EXPIRED_LIGHT_RESET_COUNT = 2;
 const GUARDIAN_INVINCIBLE_HITS = 5;
 const GUARDIAN_INVINCIBLE_FRAMES = 180;
-const RESPAWN_INVINCIBLE_FRAMES = 300; // 復活時5秒（60fps * 5 = 300フレーム）
+const RESPAWN_INVINCIBLE_FRAMES = 300;
 const SUMMON_COOLDOWN_MS = 30000;
 const SUMMON_CLONE_MAX_PERCENT = 100;
 const SUMMON_CANDIDATES = ["fighter", "guardian", "mage", "hammer"];
@@ -406,6 +424,19 @@ const ENHANCE_MAX_LEVEL = 5;
 const ENHANCE_COOLDOWN_MS = 10000;
 const CHAT_MAX_ITEMS = 40;
 let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
+
+const BOT_LEVEL_LABELS = {
+  1: "Lv.1 (超入門・ほぼ棒立ち)",
+  2: "Lv.2 (入門・ゆっくり歩行)",
+  3: "Lv.3 (初級・基本攻撃のみ)",
+  4: "Lv.4 (初中級・ジャンプ復帰)",
+  5: "Lv.5 (中級・スマッシュ使用)",
+  6: "Lv.6 (中上級・固有技＆ガード)",
+  7: "Lv.7 (上級・積極追撃)",
+  8: "Lv.8 (熟練・コンボ＆回避)",
+  9: "Lv.9 (達人・高精度立ち回り)",
+  10: "Lv.10 (最強CPU・フル全力)"
+};
 
 const COLOR_PALETTE = [
   { hex: "#ff5c5c", label: "赤" },
@@ -735,6 +766,14 @@ const gateEnterBtn = document.getElementById("gate-enter-btn");
 const inlineNameInput = document.getElementById("inline-name-input");
 const saveInlineNameBtn = document.getElementById("save-inline-name-btn");
 const roomProfileRow = document.getElementById("room-profile-row");
+const practicePanelRow = document.getElementById("practice-panel-row");
+const practiceStageSelect = document.getElementById("practice-stage-select");
+const practiceMyCharSelect = document.getElementById("practice-my-char-select");
+const practiceBotCharSelect = document.getElementById("practice-bot-char-select");
+const practiceBotLevelSelect = document.getElementById("practice-bot-level-select");
+const practiceStartBtn = document.getElementById("practice-start-btn");
+const practiceExitBtn = document.getElementById("practice-exit-btn");
+const openPracticeBtn = document.getElementById("open-practice-btn");
 const colorRow = document.getElementById("color-row");
 const colorPaletteEl = document.getElementById("color-palette");
 const mapStepRow = document.getElementById("map-step-row");
@@ -795,11 +834,18 @@ const initialUrlParams = new URLSearchParams(location.search);
 let currentPassphrase = sanitizePassphrase(initialUrlParams.get("room") || "");
 passphraseInputEl.value = currentPassphrase;
 
+// 練習場モード管理
+let isPracticeMode = false;
+let practiceBotChar = "fighter";
+let practiceBotLevel = 5;
+let practiceBotThinkTimer = 0;
+
 function isPublicLobbyRoom() {
-  return !currentPassphrase;
+  return !isPracticeMode && !currentPassphrase;
 }
 
 function getRoomCapacity() {
+  if (isPracticeMode) return 2;
   return isPublicLobbyRoom() ? MAX_LOBBY_PLAYERS : MAX_BATTLE_PLAYERS;
 }
 
@@ -834,7 +880,7 @@ let burnDebuffs = [];
 let clones = {};
 let chatMessages = [];
 
-// ハンマー状態同期用（会心突入時刻・5秒経過後の被弾カウント）
+// ハンマー状態管理（5秒絶対会心・被弾蓄積＆リセット）
 function ensureHammerCritState(entity, nowMs = performance.now()) {
   if (!entity || entity.charKey !== "hammer") return;
   if (typeof entity.critLightHitsAfterExpiry !== "number") {
@@ -882,10 +928,8 @@ function handleHammerHitProgress(entity, wasCrit) {
   if (!entity || entity.charKey !== "hammer") return;
   const nowMs = performance.now();
   if (wasCrit) {
-    // 会心攻撃が当たったら消費し、蓄積0へリセット
     resetHammerCritAndCharge(entity);
   } else {
-    // 通常攻撃ヒット時のみ +20 蓄積し、120以上で会心状態（5秒絶対会心スタート）
     entity.hammerCharge = (entity.hammerCharge || 0) + HAMMER_HIT_GAIN;
     if (entity.hammerCharge >= HAMMER_CRIT_THRESHOLD && !entity.critReady) {
       entity.critReady = true;
@@ -923,7 +967,7 @@ function handleHammerIncomingHit(entity, wasSmash, wasLight, nowMs = performance
     return { changed: false, resetOccurred: false };
   }
 
-  // 会心状態ではない場合：相手からスマッシュ+10 / L攻撃+5 蓄積（120到達で会心5秒開始）
+  // 会心状態ではない場合：相手からスマッシュ+10 / L攻撃+5 蓄積
   let gain = 0;
   if (wasSmash) gain = HAMMER_HIT_SMASH_GAIN;
   else if (wasLight) gain = HAMMER_HIT_LIGHT_GAIN;
@@ -1037,7 +1081,7 @@ function getClippedBeamRect(bm) {
 }
 
 function canSendOrShowChat() {
-  return hasEnteredLobby && phase !== "playing" && !isRoomFullBlocked && !entryBlockedByHost;
+  return hasEnteredLobby && !isPracticeMode && phase !== "playing" && !isRoomFullBlocked && !entryBlockedByHost;
 }
 
 function renderChatLogDOM() {
@@ -1088,7 +1132,7 @@ function updateChatVisibility() {
 }
 
 function pushChatMessage(msg) {
-  if (phase === "playing") return;
+  if (phase === "playing" || isPracticeMode) return;
   const text = String(msg.text || "").trim().slice(0, 80);
   if (!text) return;
   const roleNum = Number(msg.role) || 0;
@@ -1132,24 +1176,54 @@ chatInputEl.addEventListener("keydown", e => {
 
 function initDropdownOptions() {
   stageSelectEl.innerHTML = "";
+  practiceStageSelect.innerHTML = "";
   Object.keys(STAGES).forEach(key => {
-    const opt = document.createElement("option");
-    opt.value = key;
-    opt.textContent = STAGES[key].name;
-    stageSelectEl.appendChild(opt);
+    const opt1 = document.createElement("option");
+    opt1.value = key;
+    opt1.textContent = STAGES[key].name;
+    stageSelectEl.appendChild(opt1);
+
+    const opt2 = document.createElement("option");
+    opt2.value = key;
+    opt2.textContent = STAGES[key].name;
+    practiceStageSelect.appendChild(opt2);
   });
   stageSelectEl.value = currentStageKey;
+  practiceStageSelect.value = currentStageKey;
 
   charSelectDropdown.innerHTML = "";
+  practiceMyCharSelect.innerHTML = "";
+  practiceBotCharSelect.innerHTML = "";
   CHAR_ORDER.forEach((key, idx) => {
-    const opt = document.createElement("option");
-    opt.value = key;
-    opt.dataset.idx = String(idx);
-    opt.textContent = CHAR_SPECS[key].name;
-    charSelectDropdown.appendChild(opt);
+    const opt1 = document.createElement("option");
+    opt1.value = key;
+    opt1.dataset.idx = String(idx);
+    opt1.textContent = CHAR_SPECS[key].name;
+    charSelectDropdown.appendChild(opt1);
+
+    const opt2 = document.createElement("option");
+    opt2.value = key;
+    opt2.textContent = CHAR_SPECS[key].name;
+    practiceMyCharSelect.appendChild(opt2);
+
+    const opt3 = document.createElement("option");
+    opt3.value = key;
+    opt3.textContent = CHAR_SPECS[key].name;
+    practiceBotCharSelect.appendChild(opt3);
   });
   charSelectDropdown.value = selectedChar;
+  practiceMyCharSelect.value = selectedChar;
+  practiceBotCharSelect.value = practiceBotChar;
   charDescInline.textContent = `(${CHAR_SPECS[selectedChar].desc})`;
+
+  practiceBotLevelSelect.innerHTML = "";
+  for (let lv = 1; lv <= 10; lv++) {
+    const opt = document.createElement("option");
+    opt.value = String(lv);
+    opt.textContent = BOT_LEVEL_LABELS[lv] || `Lv.${lv}`;
+    practiceBotLevelSelect.appendChild(opt);
+  }
+  practiceBotLevelSelect.value = String(practiceBotLevel);
 }
 
 function makePlayer(roleNum, charKey) {
@@ -1161,6 +1235,7 @@ function makePlayer(roleNum, charKey) {
     color: sanitizeColorHex(PLAYER_COLORS[roleNum], roleNum),
     active: false,
     spectator: false,
+    isBot: false,
     charKey,
     x: sp.x, y: sp.y,
     w: 34, h: 44,
@@ -1204,16 +1279,22 @@ for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
 }
 
 function isRoleSpectating(r) {
+  if (isPracticeMode) return false;
   if (r === myRole && isSpectator) return true;
   if (spectatorRoles.has(r)) return true;
   return !!(players[r] && players[r].spectator);
 }
 
 function getParticipantRoles() {
+  if (isPracticeMode) return [1, 2];
   return activeRoles.filter(r => !isRoleSpectating(r));
 }
 
 function getDisplayNameOfRole(roleNum) {
+  if (isPracticeMode) {
+    if (roleNum === 1) return myName || "Player1";
+    if (roleNum === 2) return `CPU (Lv.${practiceBotLevel})`;
+  }
   if (roleNum === myRole && myName) return myName;
   const p = players[roleNum];
   if (p && p.name) return p.name;
@@ -1221,6 +1302,10 @@ function getDisplayNameOfRole(roleNum) {
 }
 
 function getColorOfRole(roleNum) {
+  if (isPracticeMode) {
+    if (roleNum === 1) return sanitizeColorHex(myColor, 1);
+    return "#38bdf8";
+  }
   if (roleNum === myRole) return sanitizeColorHex(myColor, roleNum);
   const p = players[roleNum];
   if (p && p.color) return sanitizeColorHex(p.color, roleNum);
@@ -1240,7 +1325,7 @@ function getTakenColorsByOthers() {
 }
 
 function ensureNonConflictingColor() {
-  if (isPublicLobbyRoom()) {
+  if (isPublicLobbyRoom() || isPracticeMode) {
     myColor = myPreferredColor;
     if (myRole !== 0 && players[myRole]) {
       players[myRole].color = myColor;
@@ -1261,7 +1346,7 @@ function ensureNonConflictingColor() {
 }
 
 function sendProfileSync() {
-  if (isPublicLobbyRoom()) return;
+  if (isPublicLobbyRoom() || isPracticeMode) return;
   if (ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && !isRoomFullBlocked && myRole !== 0) {
     ws.send(JSON.stringify({
       type: "profile",
@@ -1275,7 +1360,7 @@ function sendProfileSync() {
 
 function renderColorPalette() {
   const taken = getTakenColorsByOthers();
-  const canPickColor = !isPublicLobbyRoom() && !entryBlockedByHost && !isRoomFullBlocked && myRole !== 0 && (phase === "map_select" || phase === "char_select");
+  const canPickColor = !isPracticeMode && !isPublicLobbyRoom() && !entryBlockedByHost && !isRoomFullBlocked && myRole !== 0 && (phase === "map_select" || phase === "char_select");
   const buttons = Array.from(colorPaletteEl.querySelectorAll(".color-swatch-btn"));
 
   buttons.forEach(btn => {
@@ -1314,7 +1399,7 @@ function initColorPaletteDOM() {
     btn.appendChild(text);
 
     btn.addEventListener("click", () => {
-      if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || myRole === 0 || (phase !== "map_select" && phase !== "char_select")) return;
+      if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || myRole === 0 || (phase !== "map_select" && phase !== "char_select")) return;
       const chosen = item.hex.toLowerCase();
       if (getTakenColorsByOthers().has(chosen)) return;
       myPreferredColor = chosen;
@@ -1338,7 +1423,7 @@ function applyPlayerName(rawName, reconnectIfNeeded = false) {
   if (myRole !== 0 && players[myRole]) players[myRole].name = myName;
   updateRoomStatusBox();
   updateStatusByPhase();
-  if (reconnectIfNeeded && !ws) {
+  if (reconnectIfNeeded && !ws && !isPracticeMode) {
     connectToPassphrase(currentPassphrase, false);
   } else {
     sendProfileSync();
@@ -1359,9 +1444,20 @@ inlineNameInput.addEventListener("keydown", e => {
 });
 
 function updatePassphraseUI() {
+  if (isPracticeMode) {
+    currentPassphraseBadgeEl.textContent = `🤖 練習場（CPU Lv.${practiceBotLevel} 対決中）`;
+    practicePanelRow.classList.remove("hidden");
+    colorRow.classList.add("hidden");
+    mapStepRow.classList.add("hidden");
+    charStepRow.classList.add("hidden");
+    updateChatVisibility();
+    return;
+  }
+
+  practicePanelRow.classList.add("hidden");
   currentPassphraseBadgeEl.textContent = currentPassphrase
     ? `合言葉「${currentPassphrase}」（最大4人）`
-    : `公開待機部屋（最大${MAX_LOBBY_PLAYERS}人）`;
+    : `公開待機部屋（ロビー・最大${MAX_LOBBY_PLAYERS}人）`;
   const isLobby = isPublicLobbyRoom();
   colorRow.classList.toggle("hidden", isLobby);
   mapStepRow.classList.toggle("hidden", isLobby);
@@ -1386,7 +1482,7 @@ function pruneGhostRoles(list) {
 }
 
 function isHostPresentInList(list) {
-  if (isPublicLobbyRoom()) return true;
+  if (isPublicLobbyRoom() || isPracticeMode) return true;
   const roles = pruneGhostRoles(list);
   if (roles.length === 0) return false;
   if (fixedHostThisPc && myRole !== 0 && roles.includes(myRole)) return true;
@@ -1416,6 +1512,7 @@ function getTeamOfRole(role) {
 }
 
 function isSameTeam(roleA, roleB) {
+  if (isPracticeMode) return roleA === roleB;
   if (gameMode !== "team2v2") return false;
   return getTeamOfRole(roleA) === getTeamOfRole(roleB);
 }
@@ -1488,6 +1585,17 @@ function promoteSpectatorsToParticipants() {
 }
 
 function syncActivePlayersFromRoles() {
+  if (isPracticeMode) {
+    players[1].active = true;
+    players[1].spectator = false;
+    players[1].isBot = false;
+    players[2].active = true;
+    players[2].spectator = false;
+    players[2].isBot = true;
+    players[3].active = false;
+    players[4].active = false;
+    return;
+  }
   if (isPublicLobbyRoom()) {
     for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) players[r].active = false;
     return;
@@ -1495,6 +1603,7 @@ function syncActivePlayersFromRoles() {
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
     const inRoom = !entryBlockedByHost && !isRoomFullBlocked && activeRoles.includes(r);
     players[r].spectator = spectatorRoles.has(r) || (r === myRole && isSpectator);
+    players[r].isBot = false;
     players[r].active = inRoom && !(phase === "playing" && players[r].spectator);
   }
 }
@@ -1511,6 +1620,7 @@ function resetPlayersForNewMatch() {
 }
 
 function isHost() {
+  if (isPracticeMode) return true;
   if (isPublicLobbyRoom()) return false;
   if (entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0 || activeRoles.length === 0) return false;
   if (fixedHostThisPc) return true;
@@ -1518,6 +1628,7 @@ function isHost() {
 }
 
 function isRoleHost(r) {
+  if (isPracticeMode) return r === 1;
   if (isPublicLobbyRoom()) return false;
   if (isRoleSpectating(r)) return false;
   if (fixedHostThisPc && r === myRole && !entryBlockedByHost && !isRoomFullBlocked) return true;
@@ -1525,7 +1636,7 @@ function isRoleHost(r) {
 }
 
 function areAllPlayersReady() {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return false;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return false;
   const participants = getParticipantRoles();
   if (participants.length < 1) return false;
   return participants.every(r => readyRoles.has(r));
@@ -1536,15 +1647,111 @@ function syncReadyRolesToActive() {
   readyRoles = new Set([...readyRoles].filter(r => participantSet.has(r)));
 }
 
+// ==========================================
+// 練習場（CPU戦）開始・リセット・ロビー帰還
+// ==========================================
+function startPracticeMatch() {
+  if (!hasEnteredLobby) {
+    hasEnteredLobby = true;
+    nameGateOverlay.classList.add("hidden");
+  }
+  clearTimers();
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    try { ws.close(); } catch (ignored) {}
+    ws = null;
+  }
+
+  isPracticeMode = true;
+  isRoomFullBlocked = false;
+  entryBlockedByHost = false;
+  isSpectator = false;
+  spectatorRoles.clear();
+  readyRoles.clear();
+  gameMode = "ffa";
+  myRole = 1;
+  activeRoles = [1, 2];
+
+  currentStageKey = practiceStageSelect.value || "battlefield";
+  selectedChar = practiceMyCharSelect.value || "fighter";
+  selectedIdx = Math.max(0, CHAR_ORDER.indexOf(selectedChar));
+  practiceBotChar = practiceBotCharSelect.value || "fighter";
+  practiceBotLevel = Math.max(1, Math.min(10, Number(practiceBotLevelSelect.value) || 5));
+  practiceBotThinkTimer = 0;
+
+  players[1].charKey = selectedChar;
+  players[1].name = sanitizePlayerName(myName, 1);
+  players[1].color = sanitizeColorHex(myColor, 1);
+
+  players[2].charKey = practiceBotChar;
+  players[2].name = `CPU (Lv.${practiceBotLevel})`;
+  players[2].color = "#38bdf8";
+
+  resetPlayersForNewMatch();
+  syncActivePlayersFromRoles();
+
+  phase = "playing";
+  matchStartedAt = performance.now();
+  clearChatMessages();
+  updatePassphraseUI();
+  updateLoopUI();
+  updateRoomStatusBox();
+  updateStatusByPhase();
+}
+
+function exitPracticeToLobby() {
+  clearTimers();
+  isPracticeMode = false;
+  players[2].isBot = false;
+  connectToPassphrase("", true);
+}
+
+openPracticeBtn.addEventListener("click", () => {
+  startPracticeMatch();
+});
+practiceStartBtn.addEventListener("click", () => {
+  startPracticeMatch();
+});
+practiceExitBtn.addEventListener("click", () => {
+  exitPracticeToLobby();
+});
+practiceStageSelect.addEventListener("change", () => {
+  if (isPracticeMode) startPracticeMatch();
+});
+practiceMyCharSelect.addEventListener("change", () => {
+  if (isPracticeMode) startPracticeMatch();
+});
+practiceBotCharSelect.addEventListener("change", () => {
+  if (isPracticeMode) startPracticeMatch();
+});
+practiceBotLevelSelect.addEventListener("change", () => {
+  if (isPracticeMode) startPracticeMatch();
+});
+
 function updateLoopUI() {
   hostLockBtn.classList.toggle("active", fixedHostThisPc);
   hostLockBtn.textContent = fixedHostThisPc ? "🔒 固定ホスト：ON" : "🔓 固定ホスト：OFF";
+
+  if (isPracticeMode) {
+    practicePanelRow.classList.remove("hidden");
+    mapStepRow.classList.add("hidden");
+    charStepRow.classList.add("hidden");
+    colorRow.classList.add("hidden");
+    roomProfileRow.classList.remove("disabled-area");
+    inlineNameInput.disabled = false;
+    saveInlineNameBtn.disabled = false;
+    updateChatVisibility();
+    return;
+  }
+
+  practicePanelRow.classList.add("hidden");
 
   if (isPublicLobbyRoom()) {
     mapStepRow.classList.add("hidden");
     charStepRow.classList.add("hidden");
     colorRow.classList.add("hidden");
     roomProfileRow.classList.remove("disabled-area");
+    inlineNameInput.disabled = false;
+    saveInlineNameBtn.disabled = false;
     updateChatVisibility();
     return;
   }
@@ -1596,11 +1803,16 @@ function updateLoopUI() {
 }
 
 function updateRoomStatusBox() {
+  if (isPracticeMode) {
+    roomStatusEl.textContent = `【🤖 練習場（CPU対決）】自分：${getDisplayNameOfRole(1)}（${CHAR_SPECS[players[1].charKey].shortName}） VS CPU：Lv.${practiceBotLevel}（${CHAR_SPECS[players[2].charKey].shortName}） ｜ マップ：${getCurrentStage().name}`;
+    return;
+  }
+
   const cap = getRoomCapacity();
   if (isPublicLobbyRoom()) {
     const shown = activeRoles.slice(0, 12).map(r => `${getDisplayNameOfRole(r)}(待機${r}P)`).join(" / ");
     const extra = activeRoles.length > 12 ? ` 外${activeRoles.length - 12}人` : "";
-    roomStatusEl.textContent = `【公開待機部屋】待機中：${activeRoles.length}/${cap}人（${activeRoles.length ? shown + extra : "なし"}） ｜ 合言葉を入力して4人部屋へ`;
+    roomStatusEl.textContent = `【公開待機部屋（ロビー）】待機中：${activeRoles.length}/${cap}人（${activeRoles.length ? shown + extra : "なし"}） ｜ 合言葉入室 または「🤖 練習場」でCPU対決`;
     return;
   }
 
@@ -1635,8 +1847,15 @@ function updateRoomStatusBox() {
 function updateStatusByPhase() {
   const cap = getRoomCapacity();
   const displayMyName = myName || "未設定";
+  if (isPracticeMode) {
+    if (phase === "playing") {
+      statusEl.textContent = `🤖 [練習場] ${displayMyName}（${CHAR_SPECS[players[1].charKey].shortName}） vs CPU Lv.${practiceBotLevel}（${CHAR_SPECS[players[2].charKey].shortName}） ｜ マップ：${getCurrentStage().name}`;
+    }
+    return;
+  }
+
   if (isPublicLobbyRoom()) {
-    statusEl.textContent = `[公開待機部屋] ${displayMyName}（待機${myRole || "-"}P） ｜ 待機中: ${activeRoles.length}/${cap}人`;
+    statusEl.textContent = `[公開待機部屋（ロビー）] ${displayMyName}（待機${myRole || "-"}P） ｜ 待機中: ${activeRoles.length}/${cap}人`;
     return;
   }
 
@@ -1665,7 +1884,7 @@ function updateStatusByPhase() {
 }
 
 function sendLoopStateSync(extra = {}) {
-  if (isPublicLobbyRoom() || !ws || ws.readyState !== WebSocket.OPEN || entryBlockedByHost || isRoomFullBlocked || myRole === 0) return;
+  if (isPracticeMode || isPublicLobbyRoom() || !ws || ws.readyState !== WebSocket.OPEN || entryBlockedByHost || isRoomFullBlocked || myRole === 0) return;
   ws.send(JSON.stringify({
     type: "loop_sync",
     phase,
@@ -1679,6 +1898,10 @@ function sendLoopStateSync(extra = {}) {
 }
 
 function enterMapSelectPhase(broadcast = false) {
+  if (isPracticeMode) {
+    startPracticeMatch();
+    return;
+  }
   if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   promoteSpectatorsToParticipants();
@@ -1698,7 +1921,7 @@ function enterMapSelectPhase(broadcast = false) {
 }
 
 function enterCharSelectPhase(broadcast = false) {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   promoteSpectatorsToParticipants();
   phase = "char_select";
@@ -1723,7 +1946,7 @@ function enterCharSelectPhase(broadcast = false) {
 }
 
 function startTenSecondCountdown() {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   if (phase === "countdown" || phase === "playing" || phase === "gameover") return;
   clearTimers();
   promoteSpectatorsToParticipants();
@@ -1748,7 +1971,7 @@ function startTenSecondCountdown() {
 }
 
 function checkAllReadyAndStartCountdown() {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   syncReadyRolesToActive();
   updateLoopUI();
   updateRoomStatusBox();
@@ -1765,7 +1988,7 @@ function checkAllReadyAndStartCountdown() {
 }
 
 function startBattlePhase() {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   phase = "playing";
   clearChatMessages();
@@ -1793,7 +2016,7 @@ function startBattlePhase() {
 }
 
 function setMode(newMode, broadcastChange = true) {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   if (phase === "playing" || phase === "gameover") return;
   if (broadcastChange && !isHost()) return;
   gameMode = newMode;
@@ -1806,7 +2029,7 @@ function setMode(newMode, broadcastChange = true) {
 }
 
 function setStage(newStageKey, broadcastChange = true) {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || !STAGES[newStageKey]) return;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || !STAGES[newStageKey]) return;
   if (phase === "playing" || phase === "gameover") return;
   if (broadcastChange && !isHost()) return;
   currentStageKey = newStageKey;
@@ -1840,7 +2063,7 @@ backToMapBtn.addEventListener("click", () => {
 });
 
 readyToggleBtn.addEventListener("click", () => {
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   if (phase !== "char_select" && phase !== "countdown") return;
 
   if (readyRoles.has(myRole)) {
@@ -1860,7 +2083,7 @@ readyToggleBtn.addEventListener("click", () => {
 });
 
 function cleanupGhostRoles() {
-  if (isPublicLobbyRoom() || !isHost() || phase === "playing" || phase === "gameover") return;
+  if (isPracticeMode || isPublicLobbyRoom() || !isHost() || phase === "playing" || phase === "gameover") return;
   ghostFilterActive = true;
   activeRoles = pruneGhostRoles(activeRoles);
   spectatorRoles = new Set([...spectatorRoles].filter(r => activeRoles.includes(r)));
@@ -1886,7 +2109,7 @@ function cleanupGhostRoles() {
 resetGhostBtn.addEventListener("click", cleanupGhostRoles);
 
 hostLockBtn.addEventListener("click", () => {
-  if (isSpectator || isRoomFullBlocked) return;
+  if (isPracticeMode || isSpectator || isRoomFullBlocked) return;
   fixedHostThisPc = !fixedHostThisPc;
   localStorage.setItem("smash_host_locked", fixedHostThisPc ? "1" : "0");
   if (!isPublicLobbyRoom() && fixedHostThisPc && myRole !== 0) {
@@ -1902,7 +2125,7 @@ hostLockBtn.addEventListener("click", () => {
 });
 
 function setSelectedCharByIndex(idx) {
-  if (entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (isPracticeMode || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   if (phase !== "char_select" && phase !== "map_select") return;
   if (readyRoles.has(myRole)) return;
 
@@ -1925,7 +2148,7 @@ charSelectDropdown.addEventListener("change", () => {
 });
 
 function sendCharChange() {
-  if (!isPublicLobbyRoom() && !isSpectator && ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && !isRoomFullBlocked && myRole !== 0) {
+  if (!isPracticeMode && !isPublicLobbyRoom() && !isSpectator && ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && !isRoomFullBlocked && myRole !== 0) {
     ws.send(JSON.stringify({ type: "char", role: myRole, charKey: selectedChar }));
   }
 }
@@ -1937,6 +2160,25 @@ function finishGame(info) {
   winnerInfo = info;
   resultSecLeft = RESULT_SECONDS;
   updateLoopUI();
+
+  if (isPracticeMode) {
+    const winRole = info.winnerRole;
+    const winName = getDisplayNameOfRole(winRole);
+    const headline = `${winName} WIN!`;
+    const subline = winRole === 1 ? "練習場勝利！🎉" : "CPUに敗北...";
+    statusEl.textContent = `🤖 [練習場] ${headline}（${subline}） ${resultSecLeft}秒後に自動で再戦します...`;
+
+    countdownTimerId = setInterval(() => {
+      resultSecLeft--;
+      if (resultSecLeft > 0) {
+        statusEl.textContent = `🤖 [練習場] ${headline}（${subline}） ${resultSecLeft}秒後に自動で再戦します...`;
+      } else {
+        clearTimers();
+        startPracticeMatch();
+      }
+    }, 1000);
+    return;
+  }
 
   let headline = "";
   let subline = "";
@@ -1972,21 +2214,21 @@ function finishGame(info) {
 function broadcastGameOver(info) {
   if (gameOverSent) return;
   gameOverSent = true;
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (!isPracticeMode && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "gameover", info }));
   }
   finishGame(info);
 }
 
-function triggerBurnout(me) {
-  if ((me.invincibleTimer || 0) > 0) return;
-  me.shielding = false;
-  me.shieldHp = 0;
-  me.burnedOut = true;
-  me.frozen = false;
-  me.stun = 180;
-  me.vy = -7.5;
-  me.vx = 0;
+function triggerBurnout(entity) {
+  if ((entity.invincibleTimer || 0) > 0) return;
+  entity.shielding = false;
+  entity.shieldHp = 0;
+  entity.burnedOut = true;
+  entity.frozen = false;
+  entity.stun = 180;
+  entity.vy = -7.5;
+  entity.vx = 0;
 }
 
 function checkMatchEndCondition() {
@@ -1994,7 +2236,7 @@ function checkMatchEndCondition() {
   const participants = getParticipantRoles();
   const alivePlayers = participants.map(r => players[r]).filter(p => p && !isRoleSpectating(p.role) && p.stocks > 0);
 
-  if (gameMode === "team2v2") {
+  if (gameMode === "team2v2" && !isPracticeMode) {
     const teamAAlive = alivePlayers.some(p => getTeamOfRole(p.role) === "A");
     const teamBAlive = alivePlayers.some(p => getTeamOfRole(p.role) === "B");
     if (!teamAAlive && teamBAlive) {
@@ -2008,6 +2250,87 @@ function checkMatchEndCondition() {
     } else if (alivePlayers.length === 0 && myRole !== 0 && !isSpectator) {
       broadcastGameOver({ type: "player", winnerRole: myRole });
     }
+  }
+}
+
+// 任意のエンティティ（自分・CPU両方）へダメージ＆ノックバック＆ハンマー蓄積を適用
+function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, pierceGuard = false, hitMeta = {}) {
+  if (!targetEntity || targetEntity.stocks <= 0) return;
+  const spec = CHAR_SPECS[targetEntity.charKey] || CHAR_SPECS.fighter;
+  const wasSmash = !!hitMeta.wasSmash;
+  const wasLight = !!hitMeta.wasLight;
+  const nowMs = performance.now();
+
+  // 攻撃側のヒット確認処理（練習場のCPUまたは自分）
+  const attacker = players[attackerRole];
+  if (attacker && !hitMeta.fromClone) {
+    if (attacker.charKey === "elementalist") {
+      attacker.mp = Math.min(MAX_MP, (attacker.mp || 0) + 5);
+    }
+    if (attacker.charKey === "guardian" && wasLight && (attacker.invincibleTimer || 0) <= 0) {
+      attacker.guardianHits = (attacker.guardianHits || 0) + 1;
+      if (attacker.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
+        attacker.guardianHits = 0;
+        attacker.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
+      }
+    }
+    if (attacker.charKey === "hammer" && wasSmash) {
+      handleHammerHitProgress(attacker, !!hitMeta.wasCrit);
+    }
+  }
+
+  // 被弾側がハンマーなら蓄積/5秒後リセット処理
+  if (targetEntity.charKey === "hammer") {
+    handleHammerIncomingHit(targetEntity, wasSmash, wasLight, nowMs);
+  }
+
+  if ((targetEntity.invincibleTimer || 0) > 0) return;
+
+  if (effect === "burn") {
+    if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
+      targetEntity.shieldHp -= (dmg || 5) * 2.0;
+      if (targetEntity.shieldHp <= 0) triggerBurnout(targetEntity);
+      return;
+    }
+    if (pierceGuard) targetEntity.shielding = false;
+    burnDebuffs.push({ targetRole: targetEntity.role, attackerRole, ticksLeft: 5, tickTimer: 0, dmgPerTick: 5, dir: dir || 1 });
+    return;
+  }
+
+  if (effect === "freeze") {
+    if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
+      targetEntity.shieldHp -= 15;
+      targetEntity.vx = (dir || 1) * 2.5;
+      if (targetEntity.shieldHp <= 0) triggerBurnout(targetEntity);
+      return;
+    }
+    if (pierceGuard) targetEntity.shielding = false;
+    targetEntity.frozen = true;
+    targetEntity.stun = Math.max(targetEntity.stun, 60);
+    targetEntity.vx = 0;
+    targetEntity.shielding = false;
+    targetEntity.smashCharging = false;
+    return;
+  }
+
+  if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
+    targetEntity.shieldHp -= dmg * 2.2;
+    targetEntity.percent += Math.floor(dmg * 0.15);
+    targetEntity.vx = dir * 2.5;
+    if (targetEntity.shieldHp <= 0) triggerBurnout(targetEntity);
+    return;
+  }
+
+  if (pierceGuard && targetEntity.shielding) {
+    targetEntity.shielding = false;
+  }
+
+  targetEntity.percent += dmg;
+  if (basePower > 0) {
+    const kbScale = (1 + targetEntity.percent * 0.0165) / spec.weight;
+    targetEntity.vx = dir * basePower * kbScale;
+    targetEntity.vy = -basePower * upAngleMult * kbScale;
+    targetEntity.stun = Math.max(targetEntity.stun, Math.min(45, Math.floor(10 + basePower * 0.75)));
   }
 }
 
@@ -2050,15 +2373,14 @@ function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62, pier
 }
 
 function sendCloneSync(cloneObj) {
-  if (!isPublicLobbyRoom() && !isSpectator && ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && !isRoomFullBlocked && myRole !== 0) {
+  if (!isPracticeMode && !isPublicLobbyRoom() && !isSpectator && ws && ws.readyState === WebSocket.OPEN && !entryBlockedByHost && !isRoomFullBlocked && myRole !== 0) {
     ws.send(JSON.stringify({ type: "clone", ownerRole: myRole, clone: cloneObj }));
   }
 }
 
-function applyHitToMyClone(dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitMeta = {}) {
-  if (entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
-  const cl = clones[myRole];
-  const me = players[myRole];
+function applyHitToCloneByOwner(ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitMeta = {}) {
+  const cl = clones[ownerRole];
+  const owner = players[ownerRole];
   if (!cl || !cl.active) return;
 
   let cloneHammerChanged = false;
@@ -2084,18 +2406,24 @@ function applyHitToMyClone(dmg, basePower, dir, effect = null, upAngleMult = 0.6
   }
 
   if (cl.percent >= SUMMON_CLONE_MAX_PERCENT) {
-    delete clones[myRole];
-    if (me) {
-      me.hasClone = false;
-      sendMyState(me, true);
+    delete clones[ownerRole];
+    if (owner) {
+      owner.hasClone = false;
+      if (ownerRole === myRole) sendMyState(owner, true);
     }
-    sendCloneSync(null);
-  } else if (cloneHammerChanged || dmg > 0 || effect) {
+    if (ownerRole === myRole) sendCloneSync(null);
+  } else if (ownerRole === myRole && (cloneHammerChanged || dmg > 0 || effect)) {
     sendCloneSync(cl);
   }
 }
 
+function applyHitToMyClone(dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitMeta = {}) {
+  if (entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  applyHitToCloneByOwner(myRole, dmg, basePower, dir, effect, upAngleMult, hitMeta);
+}
+
 function markPeerActive(peerRole) {
+  if (isPracticeMode) return;
   const cap = getRoomCapacity();
   const r = Number(peerRole);
   if (!Number.isInteger(r) || r < 1 || r > cap || r === myRole) return;
@@ -2132,7 +2460,7 @@ function handleRoomFullRejection(cap = MAX_BATTLE_PLAYERS) {
 }
 
 function applyRoomSnapshot(rawRoles) {
-  if (isRoomFullBlocked) return;
+  if (isRoomFullBlocked || isPracticeMode) return;
   const nextRoles = pruneGhostRoles(rawRoles);
   const hostPresent = isHostPresentInList(nextRoles);
 
@@ -2169,7 +2497,7 @@ function applyRoomSnapshot(rawRoles) {
 
 function attachSocketHandlers(socket) {
   socket.onmessage = (e) => {
-    if (socket !== ws) return;
+    if (socket !== ws || isPracticeMode) return;
     const data = JSON.parse(e.data);
     if (data.type === "chat") {
       pushChatMessage(data);
@@ -2533,6 +2861,8 @@ function attachSocketHandlers(socket) {
 
 function connectToPassphrase(nextPassphrase, updateUrl = true) {
   if (!hasEnteredLobby) return;
+  isPracticeMode = false;
+  players[2].isBot = false;
   currentPassphrase = sanitizePassphrase(nextPassphrase);
   passphraseInputEl.value = currentPassphrase;
   updatePassphraseUI();
@@ -2568,7 +2898,7 @@ function connectToPassphrase(nextPassphrase, updateUrl = true) {
 
   statusEl.textContent = currentPassphrase
     ? `合言葉「${currentPassphrase}」の部屋に接続中...`
-    : `公開待機部屋（最大${MAX_LOBBY_PLAYERS}人）に接続中...`;
+    : `公開待機部屋（ロビー・最大${MAX_LOBBY_PLAYERS}人）に接続中...`;
   updateLoopUI();
   updateRoomStatusBox();
 
@@ -2589,44 +2919,57 @@ passphraseInputEl.addEventListener("keydown", e => {
 });
 publicRoomBtn.addEventListener("click", () => connectToPassphrase("", true));
 
-function trySummonClone(me) {
-  if (!me || me.charKey !== "summoner") return;
+function trySummonCloneForRole(actorRole) {
+  const actor = players[actorRole];
+  if (!actor || actor.charKey !== "summoner") return false;
   const now = performance.now();
-  if (clones[myRole] && clones[myRole].active) return;
-  if (now < (me.summonCooldownUntil || 0)) return;
+  if (clones[actorRole] && clones[actorRole].active) return false;
+  if (now < (actor.summonCooldownUntil || 0)) return false;
 
   const pickedChar = SUMMON_CANDIDATES[Math.floor(Math.random() * SUMMON_CANDIDATES.length)];
   const spec = CHAR_SPECS[pickedChar] || CHAR_SPECS.fighter;
-  const ground = findSolidBeneath(me.x + me.w / 2, me.y + me.h);
-  const spawnX = Math.max(ground.x + 8, Math.min(ground.x + ground.w - 40, me.x + me.facing * 42));
+  const ground = findSolidBeneath(actor.x + actor.w / 2, actor.y + actor.h);
+  const spawnX = Math.max(ground.x + 8, Math.min(ground.x + ground.w - 40, actor.x + actor.facing * 42));
 
   const newClone = {
-    ownerRole: myRole, active: true, charKey: pickedChar,
-    x: spawnX, y: me.y - 6, w: 32, h: 42, vx: 0, vy: -3,
-    facing: me.facing, jumps: spec.maxJumps || 2, percent: 0, stun: 0, atkTimer: 0, cooldown: 35, hasHit: false,
+    ownerRole: actorRole, active: true, charKey: pickedChar,
+    x: spawnX, y: actor.y - 6, w: 32, h: 42, vx: 0, vy: -3,
+    facing: actor.facing, jumps: spec.maxJumps || 2, percent: 0, stun: 0, atkTimer: 0, cooldown: 35, hasHit: false,
     hammerCharge: 0, critReady: false, critActive: false, critStartedAt: 0, critLightHitsAfterExpiry: 0
   };
-  clones[myRole] = newClone;
-  me.hasClone = true;
-  me.summonCooldownUntil = now + SUMMON_COOLDOWN_MS;
-  sendCloneSync(newClone);
-  sendMyState(me, true);
+  clones[actorRole] = newClone;
+  actor.hasClone = true;
+  actor.summonCooldownUntil = now + SUMMON_COOLDOWN_MS;
+  if (actorRole === myRole) {
+    sendCloneSync(newClone);
+    sendMyState(actor, true);
+  }
+  return true;
+}
+
+function trySummonClone(me) {
+  trySummonCloneForRole(me.role);
+}
+
+function tryEnhanceSelfForEntity(actor) {
+  if (!actor || actor.charKey !== "enhancer") return false;
+  const now = performance.now();
+  if (actor.enhanceLevel >= ENHANCE_MAX_LEVEL || now < actor.enhanceCooldownUntil) return false;
+  actor.enhanceLevel += 1;
+  actor.enhanceCooldownUntil = now + ENHANCE_COOLDOWN_MS;
+  if (actor.role === myRole) sendMyState(actor, true);
+  return true;
 }
 
 function tryEnhanceSelf(me) {
-  if (!me || me.charKey !== "enhancer") return;
-  const now = performance.now();
-  if (me.enhanceLevel >= ENHANCE_MAX_LEVEL || now < me.enhanceCooldownUntil) return;
-  me.enhanceLevel += 1;
-  me.enhanceCooldownUntil = now + ENHANCE_COOLDOWN_MS;
-  sendMyState(me, true);
+  tryEnhanceSelfForEntity(me);
 }
 
 function cycleElementMagic(me) {
   if (!me || me.charKey !== "elementalist") return;
   const curIdx = MAGIC_MODES.indexOf(me.magicMode);
   me.magicMode = MAGIC_MODES[(curIdx + 1) % MAGIC_MODES.length];
-  sendMyState(me, true);
+  if (me.role === myRole) sendMyState(me, true);
 }
 
 function createBeamObject(me, mode) {
@@ -2646,13 +2989,13 @@ function createBeamObject(me, mode) {
 }
 
 function castSelectedElementMagic(me) {
-  if (!me || me.charKey !== "elementalist" || me.cooldown > 0 || me.stun > 0 || me.shielding) return;
+  if (!me || me.charKey !== "elementalist" || me.cooldown > 0 || me.stun > 0 || me.shielding) return false;
   const mode = me.magicMode || "fire";
   const info = MAGIC_INFO[mode];
   const curMp = me.mp || 0;
 
   if (mode === "magic") {
-    if (curMp < info.minCost) return;
+    if (curMp < info.minCost) return false;
     const spentMp = curMp;
     const power = calcMagicPowerFromMp(spentMp);
     me.mp = 0; me.cooldown = 28; me.hasHit = false;
@@ -2662,12 +3005,14 @@ function castSelectedElementMagic(me) {
       spentMp: Math.floor(spentMp), dmg: power.dmg, basePower: power.basePower, hasHitRoles: []
     };
     ringEffects.push(ring);
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ring", ring }));
-    sendMyState(me, true);
-    return;
+    if (!isPracticeMode && me.role === myRole && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ring", ring }));
+    }
+    if (me.role === myRole) sendMyState(me, true);
+    return true;
   }
 
-  if (curMp < info.cost) return;
+  if (curMp < info.cost) return false;
   me.mp -= info.cost; me.cooldown = 20; me.hasHit = false;
   if (mode === "heal") {
     me.percent = Math.max(0, me.percent - 10);
@@ -2675,46 +3020,56 @@ function castSelectedElementMagic(me) {
   } else {
     const beam = createBeamObject(me, mode);
     beams.push(beam);
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "beam", beam }));
+    if (!isPracticeMode && me.role === myRole && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "beam", beam }));
+    }
   }
-  sendMyState(me, true);
+  if (me.role === myRole) sendMyState(me, true);
+  return true;
+}
+
+function executeAttackForEntity(actor, useSmash, chargeRatio = 0) {
+  if (!actor || actor.stocks <= 0 || actor.cooldown > 0 || actor.stun > 0 || actor.shielding) return false;
+  const spec = CHAR_SPECS[actor.charKey];
+  actor.hasHit = false;
+
+  if (useSmash) {
+    actor.atkType = "smash";
+    actor.atkTimer = 16;
+    actor.cooldown = spec.smashCooldown;
+    actor.smashChargeRatio = chargeRatio;
+    if (actor.charKey === "hammer") {
+      ensureHammerCritState(actor, performance.now());
+    }
+    actor.critActive = (actor.charKey === "hammer") && isHammerCritState(actor, performance.now());
+  } else {
+    actor.atkType = "light";
+    actor.atkTimer = actor.charKey === "fighter" ? 7 : 10;
+    actor.cooldown = spec.lightCooldown;
+    actor.critActive = false;
+
+    if (actor.charKey === "mage") {
+      const laserLen = 460, laserH = 12;
+      const laserBeam = {
+        ownerRole: actor.role, mode: "mage_laser",
+        x: actor.facing === 1 ? actor.x + actor.w + 4 : actor.x - laserLen - 4,
+        y: actor.y + 16, w: laserLen, h: laserH, dir: actor.facing,
+        life: 10, maxLife: 10, dmg: spec.lightDmg, basePower: 5.0, hasHitRoles: []
+      };
+      beams.push(laserBeam);
+      if (!isPracticeMode && actor.role === myRole && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "beam", beam: laserBeam }));
+      }
+    }
+  }
+  if (actor.role === myRole) sendMyState(actor, true);
+  return true;
 }
 
 function triggerAttack(useSmash, chargeRatio = 0) {
   if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   const me = players[myRole];
-  if (!me || me.stocks <= 0 || me.cooldown > 0 || me.stun > 0 || me.shielding) return;
-  const spec = CHAR_SPECS[me.charKey];
-  me.hasHit = false;
-
-  if (useSmash) {
-    me.atkType = "smash";
-    me.atkTimer = 16;
-    me.cooldown = spec.smashCooldown;
-    me.smashChargeRatio = chargeRatio;
-    if (me.charKey === "hammer") {
-      ensureHammerCritState(me, performance.now());
-    }
-    me.critActive = (me.charKey === "hammer") && isHammerCritState(me, performance.now());
-  } else {
-    me.atkType = "light";
-    me.atkTimer = me.charKey === "fighter" ? 7 : 10;
-    me.cooldown = spec.lightCooldown;
-    me.critActive = false;
-
-    if (me.charKey === "mage") {
-      const laserLen = 460, laserH = 12;
-      const laserBeam = {
-        ownerRole: myRole, mode: "mage_laser",
-        x: me.facing === 1 ? me.x + me.w + 4 : me.x - laserLen - 4,
-        y: me.y + 16, w: laserLen, h: laserH, dir: me.facing,
-        life: 10, maxLife: 10, dmg: spec.lightDmg, basePower: 5.0, hasHitRoles: []
-      };
-      beams.push(laserBeam);
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "beam", beam: laserBeam }));
-    }
-  }
-  sendMyState(me, true);
+  executeAttackForEntity(me, useSmash, chargeRatio);
 }
 
 const down = {};
@@ -2723,7 +3078,7 @@ window.addEventListener("keydown", e => {
   if (["INPUT", "SELECT"].includes(document.activeElement.tagName)) return;
   if (entryBlockedByHost || isRoomFullBlocked || myRole === 0) return;
 
-  if (!isSpectator && (phase === "char_select" || phase === "map_select") && !down[e.code] && !readyRoles.has(myRole)) {
+  if (!isPracticeMode && !isSpectator && (phase === "char_select" || phase === "map_select") && !down[e.code] && !readyRoles.has(myRole)) {
     if (e.code === "KeyA") setSelectedCharByIndex(selectedIdx - 1);
     if (e.code === "KeyD") setSelectedCharByIndex(selectedIdx + 1);
   }
@@ -2779,22 +3134,40 @@ function getMeleeHitbox(p, nowMs = performance.now()) {
   };
 }
 
-function sendHitToTarget(targetRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
+function sendHitFromActorToTarget(attackerRole, targetRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
+  if (isPracticeMode) {
+    const target = players[targetRole];
+    if (!target || target.stocks <= 0) return;
+    applyIncomingHitToEntity(target, attackerRole, dmg, basePower, dir, effect, upAngleMult, !!extra.pierceGuard, extra);
+    return;
+  }
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "hit", attackerRole: myRole, targetRole, dmg, basePower, dir, effect, upAngleMult, ...extra }));
+    ws.send(JSON.stringify({ type: "hit", attackerRole, targetRole, dmg, basePower, dir, effect, upAngleMult, ...extra }));
+  }
+}
+
+function sendHitToTarget(targetRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
+  sendHitFromActorToTarget(myRole, targetRole, dmg, basePower, dir, effect, upAngleMult, extra);
+}
+
+function sendHitFromActorToClone(attackerRole, ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
+  if (isPracticeMode) {
+    applyHitToCloneByOwner(ownerRole, dmg, basePower, dir, effect, upAngleMult, extra);
+    return;
+  }
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "clone_hit", attackerRole, ownerRole, dmg, basePower, dir, effect, upAngleMult, ...extra }));
   }
 }
 
 function sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "clone_hit", attackerRole: myRole, ownerRole, dmg, basePower, dir, effect, upAngleMult, ...extra }));
-  }
+  sendHitFromActorToClone(myRole, ownerRole, dmg, basePower, dir, effect, upAngleMult, extra);
 }
 
-function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false, hitMeta = {}) {
+function checkHitEnemyClonesByBoxForActor(attackerRole, box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false, hitMeta = {}) {
   for (const ownerStr of Object.keys(clones)) {
     const ownerRole = Number(ownerStr);
-    if (ownerRole === myRole || isSameTeam(myRole, ownerRole) || isRoleSpectating(ownerRole)) continue;
+    if (ownerRole === attackerRole || isSameTeam(attackerRole, ownerRole) || isRoleSpectating(ownerRole)) continue;
     if (hitOwnerList && hitOwnerList.includes(ownerRole)) continue;
     const cl = clones[ownerRole];
     if (!cl || !cl.active) continue;
@@ -2803,14 +3176,18 @@ function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAng
       if (isBlockedByStageSegment(originX, originY, cl.x + cl.w * 0.5, cl.y + cl.h * 0.5)) continue;
     }
     if (hitOwnerList) hitOwnerList.push(ownerRole);
-    sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect, upAngleMult, hitMeta);
+    sendHitFromActorToClone(attackerRole, ownerRole, dmg, basePower, dir, effect, upAngleMult, hitMeta);
     return true;
   }
   return false;
 }
 
+function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false, hitMeta = {}) {
+  return checkHitEnemyClonesByBoxForActor(myRole, box, dmg, basePower, dir, effect, upAngleMult, hitOwnerList, originX, originY, ignoreStageBlock, hitMeta);
+}
+
 function sendMyState(me, force = false) {
-  if (isPublicLobbyRoom() || isSpectator || !ws || ws.readyState !== WebSocket.OPEN || entryBlockedByHost || isRoomFullBlocked || !me) return;
+  if (isPracticeMode || isPublicLobbyRoom() || isSpectator || !ws || ws.readyState !== WebSocket.OPEN || entryBlockedByHost || isRoomFullBlocked || !me) return;
   const now = performance.now();
   if (!force && now - lastStateSentAt < STATE_SEND_INTERVAL_MS) return;
   lastStateSentAt = now;
@@ -2865,15 +3242,14 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
   }
 }
 
-function updateMyClone(dtScale, nowMs = performance.now()) {
-  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
-  const cl = clones[myRole];
-  const me = players[myRole];
+function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
+  const cl = clones[ownerRole];
+  const owner = players[ownerRole];
   if (!cl || !cl.active) return;
-  if (!me || me.stocks <= 0 || me.charKey !== "summoner") {
-    delete clones[myRole];
-    if (me) me.hasClone = false;
-    sendCloneSync(null);
+  if (!owner || owner.stocks <= 0 || owner.charKey !== "summoner") {
+    delete clones[ownerRole];
+    if (owner) owner.hasClone = false;
+    if (ownerRole === myRole) sendCloneSync(null);
     return;
   }
 
@@ -2885,7 +3261,7 @@ function updateMyClone(dtScale, nowMs = performance.now()) {
   const ground = findSolidBeneath(cl.x + cl.w / 2, cl.y + cl.h);
   let nearestTarget = null, nearestDist = Infinity;
   for (const r of getParticipantRoles()) {
-    if (r === myRole || isSameTeam(myRole, r)) continue;
+    if (r === ownerRole || isSameTeam(ownerRole, r)) continue;
     const t = players[r];
     if (!t || !t.active || t.stocks <= 0) continue;
     const d = Math.hypot((t.x + t.w / 2) - (cl.x + cl.w / 2), (t.y + t.h / 2) - (cl.y + cl.h / 2));
@@ -2910,13 +3286,15 @@ function updateMyClone(dtScale, nowMs = performance.now()) {
       if (cl.charKey === "mage") {
         const laserLen = 360, laserH = 10;
         const laserBeam = {
-          ownerRole: myRole, fromClone: true, mode: "mage_laser",
+          ownerRole, fromClone: true, mode: "mage_laser",
           x: cl.facing === 1 ? cl.x + cl.w + 4 : cl.x - laserLen - 4,
           y: cl.y + 15, w: laserLen, h: laserH, dir: cl.facing,
           life: 9, maxLife: 9, dmg: Math.max(4, spec.lightDmg - 2), basePower: 3.5, hasHitRoles: []
         };
         beams.push(laserBeam);
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "beam", beam: laserBeam }));
+        if (!isPracticeMode && ownerRole === myRole && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "beam", beam: laserBeam }));
+        }
       }
     }
   }
@@ -2935,37 +3313,61 @@ function updateMyClone(dtScale, nowMs = performance.now()) {
     const cx = cl.x + cl.w * 0.5;
     const cy = cl.y + cl.h * 0.5;
     for (const r of getParticipantRoles()) {
-      if (r === myRole || isSameTeam(myRole, r)) continue;
+      if (r === ownerRole || isSameTeam(ownerRole, r)) continue;
       const target = players[r];
       if (!target || !target.active || target.stocks <= 0) continue;
       if (doesMeleeHitEntity(hb, cx, cy, target)) {
         cl.hasHit = true;
-        sendHitToTarget(target.role, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, { fromClone: true, wasLight: true, wasSmash: false });
+        sendHitFromActorToTarget(ownerRole, target.role, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, { fromClone: true, wasLight: true, wasSmash: false });
         break;
       }
     }
-    if (!cl.hasHit && checkHitEnemyClonesByBox(hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, null, cx, cy, false, { wasLight: true, wasSmash: false })) cl.hasHit = true;
+    if (!cl.hasHit && checkHitEnemyClonesByBoxForActor(ownerRole, hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, null, cx, cy, false, { wasLight: true, wasSmash: false })) {
+      cl.hasHit = true;
+    }
   }
 
   if (cl.percent >= SUMMON_CLONE_MAX_PERCENT || cl.x < -160 || cl.x > canvas.width + 160 || cl.y > canvas.height + 160) {
-    delete clones[myRole]; me.hasClone = false;
-    sendCloneSync(null); sendMyState(me, true);
+    delete clones[ownerRole];
+    owner.hasClone = false;
+    if (ownerRole === myRole) {
+      sendCloneSync(null);
+      sendMyState(owner, true);
+    }
     return;
   }
-  sendCloneSync(cl);
+  if (ownerRole === myRole) sendCloneSync(cl);
+}
+
+function updateMyClone(dtScale, nowMs = performance.now()) {
+  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  updateCloneForOwner(myRole, dtScale, nowMs);
+  if (isPracticeMode && clones[2] && clones[2].active) {
+    updateCloneForOwner(2, dtScale, nowMs);
+  }
 }
 
 function updateBurnDebuffs(dtScale) {
-  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
-  const me = players[myRole];
-  if (!me || me.stocks <= 0) return;
+  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked) return;
   for (let i = burnDebuffs.length - 1; i >= 0; i--) {
     const b = burnDebuffs[i];
-    if (b.targetRole !== myRole) continue;
+    const isMyBurn = (b.targetRole === myRole && !isSpectator);
+    const isBotBurn = (isPracticeMode && b.targetRole === 2);
+    if (!isMyBurn && !isBotBurn) continue;
+
+    const targetEntity = players[b.targetRole];
+    if (!targetEntity || targetEntity.stocks <= 0) {
+      burnDebuffs.splice(i, 1);
+      continue;
+    }
+
     b.tickTimer += dtScale;
     if (b.tickTimer >= 60) {
       b.tickTimer -= 60;
-      if ((me.invincibleTimer || 0) <= 0) { me.percent += b.dmgPerTick; sendMyState(me, true); }
+      if ((targetEntity.invincibleTimer || 0) <= 0) {
+        targetEntity.percent += b.dmgPerTick;
+        if (b.targetRole === myRole) sendMyState(targetEntity, true);
+      }
       if (--b.ticksLeft <= 0) burnDebuffs.splice(i, 1);
     }
   }
@@ -2975,25 +3377,29 @@ function updateBeams(dtScale) {
   for (let i = beams.length - 1; i >= 0; i--) {
     const bm = beams[i];
     bm.life -= dtScale;
-    if (!isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked && !isSpectator && myRole !== 0 && bm.ownerRole === myRole && bm.mode !== "heal") {
+    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+      ((bm.ownerRole === myRole && !isSpectator) || (isPracticeMode && bm.ownerRole === 2));
+
+    if (isAuthoritative && bm.mode !== "heal") {
       const hitBox = getClippedBeamRect(bm);
       const originX = bm.dir === 1 ? hitBox.x : hitBox.x + hitBox.w;
       const originY = hitBox.y + hitBox.h * 0.5;
 
       for (const r of getParticipantRoles()) {
-        if (r === myRole || isSameTeam(myRole, r) || bm.hasHitRoles.includes(r)) continue;
+        if (r === bm.ownerRole || isSameTeam(bm.ownerRole, r) || bm.hasHitRoles.includes(r)) continue;
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
         if (!rectsOverlap(hitBox, target)) continue;
         if (isBlockedByStageSegment(originX, originY, target.x + target.w * 0.5, target.y + target.h * 0.5)) continue;
 
         bm.hasHitRoles.push(r);
-        if (bm.mode === "fire") sendHitToTarget(target.role, 0, 2.5, bm.dir, "burn", 0.62, { wasSmash: true });
-        else if (bm.mode === "ice") sendHitToTarget(target.role, 4, 0, bm.dir, "freeze", 0.62, { wasLight: true });
-        else if (bm.mode === "mage_laser") sendHitToTarget(target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true, fromClone: !!bm.fromClone });
+        if (bm.mode === "fire") sendHitFromActorToTarget(bm.ownerRole, target.role, 0, 2.5, bm.dir, "burn", 0.62, { wasSmash: true });
+        else if (bm.mode === "ice") sendHitFromActorToTarget(bm.ownerRole, target.role, 4, 0, bm.dir, "freeze", 0.62, { wasLight: true });
+        else if (bm.mode === "mage_laser") sendHitFromActorToTarget(bm.ownerRole, target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true, fromClone: !!bm.fromClone });
       }
       if (!bm.hasHitCloneOwners) bm.hasHitCloneOwners = [];
-      checkHitEnemyClonesByBox(
+      checkHitEnemyClonesByBoxForActor(
+        bm.ownerRole,
         hitBox,
         bm.mode === "fire" ? 15 : (bm.mode === "ice" ? 4 : (bm.dmg || 8)),
         bm.mode === "fire" ? 2.5 : (bm.mode === "ice" ? 0 : (bm.basePower || 5.0)),
@@ -3016,9 +3422,12 @@ function updateRings(dtScale) {
     const rg = ringEffects[i];
     rg.life -= dtScale;
     const curRadius = rg.maxRadius * Math.min(1, (1 - Math.max(0, rg.life / rg.maxLife)) * 1.35);
-    if (!isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked && !isSpectator && myRole !== 0 && rg.ownerRole === myRole) {
+    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+      ((rg.ownerRole === myRole && !isSpectator) || (isPracticeMode && rg.ownerRole === 2));
+
+    if (isAuthoritative) {
       for (const r of getParticipantRoles()) {
-        if (r === myRole || isSameTeam(myRole, r) || rg.hasHitRoles.includes(r)) continue;
+        if (r === rg.ownerRole || isSameTeam(rg.ownerRole, r) || rg.hasHitRoles.includes(r)) continue;
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
         const closestX = Math.max(target.x, Math.min(rg.cx, target.x + target.w));
@@ -3028,13 +3437,13 @@ function updateRings(dtScale) {
         if (Math.hypot(dx, dy) <= curRadius) {
           rg.hasHitRoles.push(r);
           const dirX = ((target.x + target.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
-          sendHitToTarget(target.role, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
+          sendHitFromActorToTarget(rg.ownerRole, target.role, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
         }
       }
       if (!rg.hasHitCloneOwners) rg.hasHitCloneOwners = [];
       for (const ownerStr of Object.keys(clones)) {
         const ownerRole = Number(ownerStr);
-        if (ownerRole === myRole || isSameTeam(myRole, ownerRole) || rg.hasHitCloneOwners.includes(ownerRole)) continue;
+        if (ownerRole === rg.ownerRole || isSameTeam(rg.ownerRole, ownerRole) || rg.hasHitCloneOwners.includes(ownerRole)) continue;
         const cl = clones[ownerRole];
         if (!cl || !cl.active) continue;
         const closestX = Math.max(cl.x, Math.min(rg.cx, cl.x + cl.w));
@@ -3044,11 +3453,316 @@ function updateRings(dtScale) {
         if (Math.hypot(dx, dy) <= curRadius) {
           rg.hasHitCloneOwners.push(ownerRole);
           const dirX = ((cl.x + cl.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
-          sendHitToEnemyClone(ownerRole, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
+          sendHitFromActorToClone(rg.ownerRole, ownerRole, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
         }
       }
     }
     if (rg.life <= 0) ringEffects.splice(i, 1);
+  }
+}
+
+function processEntityMeleeHits(actor, nowMs) {
+  const spec = CHAR_SPECS[actor.charKey];
+  const hb = getMeleeHitbox(actor, nowMs);
+  const inActiveFrames = hb && (
+    (hb.isSmash && actor.atkTimer >= 6.5 && actor.atkTimer <= 11.5) ||
+    (!hb.isSmash && actor.atkTimer >= (actor.charKey === "fighter" ? 2.5 : 5.5) && actor.atkTimer <= (actor.charKey === "fighter" ? 6.5 : 8.5))
+  );
+
+  if (!inActiveFrames || actor.hasHit) return;
+
+  const originX = actor.x + actor.w * 0.5;
+  const originY = actor.y + actor.h * 0.5;
+
+  for (const r of getParticipantRoles()) {
+    if (r === actor.role || isSameTeam(actor.role, r)) continue;
+    const target = players[r];
+    if (!target || !target.active || target.stocks <= 0) continue;
+    if (doesMeleeHitEntity(hb, originX, originY, target)) {
+      actor.hasHit = true;
+      if (!hb.isSmash && actor.charKey === "elementalist") actor.mp = Math.min(MAX_MP, (actor.mp || 0) + 5);
+      if (hb.isSmash) {
+        const ratio = actor.smashChargeRatio || 0;
+        let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
+        let finalKb = 14.5 * (1 + ratio * 0.45);
+        let pierceGuard = false;
+        let wasCrit = false;
+
+        if (actor.charKey === "hammer") {
+          wasCrit = isHammerCritState(actor, nowMs);
+          if (wasCrit) {
+            finalDmg += HAMMER_CRIT_BONUS_DMG;
+            finalKb *= 1.45;
+            pierceGuard = true;
+          }
+          handleHammerHitProgress(actor, wasCrit);
+        }
+        sendHitFromActorToTarget(actor.role, target.role, finalDmg, finalKb, actor.facing, null, 0.62, {
+          wasSmash: true,
+          wasLight: false,
+          wasCrit,
+          pierceGuard
+        });
+        actor.smashChargeRatio = 0;
+        if (actor.role === myRole) sendMyState(actor, true);
+      } else {
+        const lightStats = getEffectiveLightStats(actor, spec);
+        if (actor.charKey === "guardian" && (actor.invincibleTimer || 0) <= 0) {
+          actor.guardianHits = (actor.guardianHits || 0) + 1;
+          if (actor.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
+            actor.guardianHits = 0;
+            actor.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
+          }
+          if (actor.role === myRole) sendMyState(actor, true);
+        }
+        sendHitFromActorToTarget(actor.role, target.role, lightStats.dmg, lightStats.basePower, actor.facing, null, 0.62, { wasLight: true, wasSmash: false });
+      }
+      break;
+    }
+  }
+
+  if (!actor.hasHit) {
+    if (hb.isSmash) {
+      const ratio = actor.smashChargeRatio || 0;
+      let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
+      let finalKb = 14.5 * (1 + ratio * 0.45);
+      let wasCrit = false;
+      if (actor.charKey === "hammer") {
+        wasCrit = isHammerCritState(actor, nowMs);
+        if (wasCrit) {
+          finalDmg += HAMMER_CRIT_BONUS_DMG;
+          finalKb *= 1.45;
+        }
+      }
+      if (checkHitEnemyClonesByBoxForActor(actor.role, hb, finalDmg, finalKb, actor.facing, null, 0.62, null, originX, originY, false, { wasSmash: true, wasLight: false })) {
+        if (actor.charKey === "hammer") handleHammerHitProgress(actor, wasCrit);
+        actor.hasHit = true;
+        actor.smashChargeRatio = 0;
+        if (actor.role === myRole) sendMyState(actor, true);
+      }
+    } else {
+      const lightStats = getEffectiveLightStats(actor, spec);
+      if (checkHitEnemyClonesByBoxForActor(actor.role, hb, lightStats.dmg, lightStats.basePower, actor.facing, null, 0.62, null, originX, originY, false, { wasLight: true, wasSmash: false })) {
+        actor.hasHit = true;
+      }
+    }
+  }
+}
+
+function handleEntityRingOut(actor) {
+  const maxJumps = getMaxJumpsForPlayer(actor);
+  actor.stocks = Math.max(0, actor.stocks - 1);
+  actor.percent = 0; actor.vx = 0; actor.vy = 0; actor.stun = 0; actor.frozen = false;
+  actor.jumps = maxJumps; actor.shielding = false; actor.burnedOut = false; actor.shieldHp = MAX_SHIELD;
+  actor.smashCharging = false; actor.hasHit = false; actor.enhanceLevel = 0; actor.enhanceCooldownUntil = 0;
+  resetHammerCritAndCharge(actor);
+  actor.guardianHits = 0;
+  if (clones[actor.role]) {
+    delete clones[actor.role];
+    actor.hasClone = false;
+    if (actor.role === myRole) sendCloneSync(null);
+  }
+  actor.mp = MAX_MP;
+  burnDebuffs = burnDebuffs.filter(b => b.targetRole !== actor.role);
+  if (actor.stocks > 0) {
+    const sp = getSpawnPoint(actor.role);
+    actor.x = sp.x; actor.y = sp.y; actor.facing = sp.facing;
+    actor.invincibleTimer = RESPAWN_INVINCIBLE_FRAMES;
+  } else {
+    actor.invincibleTimer = 0;
+  }
+  if (actor.role === myRole) sendMyState(actor, true);
+  checkMatchEndCondition();
+}
+
+// ==========================================
+// 練習場 CPU AI（Lv.1〜10）の更新処理
+// ==========================================
+function updatePracticeBot(dtScale, nowMs = performance.now()) {
+  if (!isPracticeMode || phase !== "playing") return;
+  const bot = players[2];
+  const target = players[1];
+  if (!bot || !bot.active || bot.stocks <= 0) return;
+
+  const spec = CHAR_SPECS[bot.charKey] || CHAR_SPECS.fighter;
+  const maxJumps = getMaxJumpsForPlayer(bot);
+  const lv = Math.max(1, Math.min(10, practiceBotLevel)); // 1..10
+
+  if ((bot.invincibleTimer || 0) > 0) bot.invincibleTimer = Math.max(0, bot.invincibleTimer - dtScale);
+  if (bot.charKey === "elementalist") bot.mp = Math.min(MAX_MP, (bot.mp ?? MAX_MP) + (1 / 60) * dtScale);
+  if (bot.charKey === "hammer") ensureHammerCritState(bot, nowMs);
+
+  let wantMoveDir = 0;
+  let wantShield = false;
+  let wantDropThrough = false;
+
+  if (target && target.active && target.stocks > 0 && bot.stun <= 0 && !bot.burnedOut) {
+    const dx = (target.x + target.w * 0.5) - (bot.x + bot.w * 0.5);
+    const dy = (target.y + target.h * 0.5) - (bot.y + bot.h * 0.5);
+    const absDx = Math.abs(dx);
+    const st = getCurrentStage();
+    const ground = findSolidBeneath(bot.x + bot.w * 0.5, bot.y + bot.h);
+    const botCenterX = bot.x + bot.w * 0.5;
+    const isOffstage = botCenterX < ground.x + 12 || botCenterX > ground.x + ground.w - 12 || bot.y + bot.h > ground.y + 18;
+
+    // 場外復帰行動（Lv.2以上で段々賢くなる）
+    if (isOffstage && lv >= 2) {
+      const stageMidX = canvas.width * 0.5;
+      wantMoveDir = stageMidX >= botCenterX ? 1 : -1;
+      bot.facing = wantMoveDir;
+      const jumpUrgency = lv >= 7 ? 0.25 : 0.10;
+      if (bot.jumps > 0 && bot.vy > -1 && (bot.y > ground.y - 40 || Math.random() < jumpUrgency * dtScale)) {
+        bot.vy = spec.jumpPower;
+        bot.jumps--;
+      }
+    } else if (lv === 1) {
+      // Lv.1：超入門（ほぼその場で待機、たまに弱攻撃）
+      bot.facing = dx >= 0 ? 1 : -1;
+      if (absDx < 52 && Math.abs(dy) < 35 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.015 * dtScale) {
+        executeAttackForEntity(bot, false, 0);
+      }
+    } else {
+      // Lv.2〜10：レベルに応じた追尾・固有技・ガード・攻撃
+      const speedFactor = 0.32 + (lv - 1) * 0.075; // Lv.2:0.40 〜 Lv.10:1.00
+      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 220 : 48;
+
+      if (!bot.smashCharging) {
+        bot.facing = dx >= 0 ? 1 : -1;
+        if (absDx > desiredRange) {
+          wantMoveDir = bot.facing * speedFactor;
+        } else if (lv >= 7 && absDx < 24) {
+          wantMoveDir = -bot.facing * 0.35;
+        }
+      }
+
+      // 高台の相手へのジャンプ＆下りすり抜け
+      if (dy < -75 && absDx < 160 && bot.jumps > 0 && bot.vy >= -1 && Math.random() < (0.015 + lv * 0.008) * dtScale) {
+        bot.vy = spec.jumpPower;
+        bot.jumps--;
+      } else if (dy > 65 && absDx < 140 && lv >= 4 && Math.random() < 0.04 * dtScale) {
+        wantDropThrough = true;
+      }
+
+      // 相手の攻撃に対するシールド防御（Lv.5以上）
+      if (lv >= 5 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 35 && target.atkTimer > 0 && absDx < 95 && Math.abs(dy) < 55) {
+        const shieldChance = (lv - 4) * 0.11; // Lv.5:11% 〜 Lv.10:66%
+        if (Math.random() < shieldChance) {
+          wantShield = true;
+        }
+      }
+
+      // 固有技＆スマッシュ＆通常攻撃の判断
+      if (!wantShield && bot.cooldown <= 0 && bot.atkTimer <= 0) {
+        // 強化タイプ（Lv.4以上でK強化）
+        if (bot.charKey === "enhancer" && lv >= 4 && bot.enhanceLevel < ENHANCE_MAX_LEVEL && nowMs >= bot.enhanceCooldownUntil) {
+          if (Math.random() < (0.02 + lv * 0.012) * dtScale) {
+            tryEnhanceSelfForEntity(bot);
+          }
+        }
+        // 召喚タイプ（Lv.4以上でKクローン召喚）
+        if (bot.charKey === "summoner" && lv >= 4 && !(clones[2] && clones[2].active) && nowMs >= bot.summonCooldownUntil) {
+          if (Math.random() < (0.02 + lv * 0.015) * dtScale) {
+            trySummonCloneForRole(2);
+          }
+        }
+        // 精霊魔法タイプ（Lv.4以上で状況に応じて魔法切替＆発動）
+        if (bot.charKey === "elementalist" && lv >= 4 && (bot.mp || 0) >= 10) {
+          if (bot.percent >= 70 && (bot.mp || 0) >= 30) bot.magicMode = "heal";
+          else if ((bot.mp || 0) >= 85 && absDx < 190 && lv >= 6) bot.magicMode = "magic";
+          else if (absDx < 245 && Math.abs(dy) < 35) {
+            bot.magicMode = (!target.frozen && lv >= 6 && Math.random() < 0.45) ? "ice" : "fire";
+          }
+          if ((bot.magicMode === "heal" || (absDx < 250 && Math.abs(dy) < 42) || (bot.magicMode === "magic" && absDx < 195)) &&
+              Math.random() < (0.02 + lv * 0.012) * dtScale) {
+            castSelectedElementMagic(bot);
+          }
+        }
+
+        // スマッシュチャージ解放判定
+        if (bot.smashCharging) {
+          const heldMs = Date.now() - bot.smashChargeStart;
+          const releaseWindow = absDx < 76 && Math.abs(dy) < 46;
+          const maxHoldMs = lv >= 8 ? 550 : 900;
+          if (releaseWindow || heldMs >= maxHoldMs) {
+            bot.smashCharging = false;
+            executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 1.0));
+          }
+        } else {
+          // ハンマー会心状態なら積極的にスマッシュ狙い
+          const botHammerCrit = bot.charKey === "hammer" && isHammerCritState(bot, nowMs);
+          if (botHammerCrit && absDx < 86 && Math.abs(dy) < 48 && lv >= 3) {
+            executeAttackForEntity(bot, true, 0.25);
+          } else if (lv >= 5 && absDx < 72 && Math.abs(dy) < 44 && (target.percent >= 75 || Math.random() < (lv - 4) * 0.025 * dtScale)) {
+            if (lv >= 7 && Math.random() < 0.45) {
+              bot.smashCharging = true;
+              bot.smashChargeStart = Date.now();
+            } else {
+              executeAttackForEntity(bot, true, 0.15);
+            }
+          } else {
+            const lightRangeX = bot.charKey === "mage" ? 380 : 54;
+            const lightRangeY = bot.charKey === "mage" ? 28 : 40;
+            const attackRate = 0.025 + lv * 0.018;
+            if (absDx <= lightRangeX && Math.abs(dy) <= lightRangeY && Math.random() < attackRate * dtScale) {
+              executeAttackForEntity(bot, false, 0);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // シールド更新
+  if (wantShield && !bot.burnedOut && bot.stun <= 0 && bot.atkTimer <= 0 && !bot.smashCharging) {
+    bot.shielding = true;
+    bot.shieldHp -= spec.shieldDrain * dtScale;
+    if (bot.shieldHp <= 0) triggerBurnout(bot);
+  } else {
+    bot.shielding = false;
+    if (bot.shieldHp < MAX_SHIELD && !bot.burnedOut) {
+      bot.shieldHp = Math.min(MAX_SHIELD, bot.shieldHp + 0.35 * dtScale);
+    }
+  }
+
+  const canMove = bot.stun <= 0 && !bot.shielding && !bot.smashCharging;
+  const acc = canMove ? getEffectiveMoveAcc(bot, spec) : 0;
+  if (canMove && wantMoveDir !== 0) {
+    bot.vx += wantMoveDir * acc * dtScale;
+  }
+  if (canMove && wantDropThrough && bot.dropThroughTimer <= 0) {
+    bot.dropThroughTimer = 8;
+  }
+
+  bot.vx *= bot.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(spec.friction, dtScale);
+  bot.vy += 0.56 * dtScale;
+
+  const prevX = bot.x, prevY = bot.y;
+  bot.x += bot.vx * dtScale;
+  bot.y += bot.vy * dtScale;
+  if (bot.dropThroughTimer > 0) bot.dropThroughTimer = Math.max(0, bot.dropThroughTimer - dtScale);
+  resolveStageCollisions(bot, prevX, prevY, maxJumps, bot.dropThroughTimer > 0);
+
+  if (bot.atkTimer > 0) {
+    bot.atkTimer = Math.max(0, bot.atkTimer - dtScale);
+    if (bot.atkTimer === 0) {
+      bot.atkType = null;
+      bot.hasHit = false;
+      bot.critActive = false;
+    }
+  }
+  if (bot.cooldown > 0) bot.cooldown = Math.max(0, bot.cooldown - dtScale);
+  if (bot.stun > 0) {
+    bot.stun = Math.max(0, bot.stun - dtScale);
+    if (bot.stun === 0) {
+      bot.frozen = false;
+      if (bot.burnedOut) { bot.burnedOut = false; bot.shieldHp = 60; }
+    }
+  }
+
+  processEntityMeleeHits(bot, nowMs);
+
+  if (bot.x < -160 || bot.x > canvas.width + 160 || bot.y > canvas.height + 160) {
+    handleEntityRingOut(bot);
   }
 }
 
@@ -3062,7 +3776,6 @@ function updateMyPlayer(dtScale, nowMs = performance.now()) {
   if ((me.invincibleTimer || 0) > 0) me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
   if (me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp ?? MAX_MP) + (1 / 60) * dtScale);
 
-  // ハンマー：蓄積120以上で会心状態（5秒間は絶対会心モード）
   if (me.charKey === "hammer") {
     ensureHammerCritState(me, nowMs);
   }
@@ -3107,104 +3820,10 @@ function updateMyPlayer(dtScale, nowMs = performance.now()) {
     }
   }
 
-  const hb = getMeleeHitbox(me, nowMs);
-  const inActiveFrames = hb && (
-    (hb.isSmash && me.atkTimer >= 6.5 && me.atkTimer <= 11.5) ||
-    (!hb.isSmash && me.atkTimer >= (me.charKey === "fighter" ? 2.5 : 5.5) && me.atkTimer <= (me.charKey === "fighter" ? 6.5 : 8.5))
-  );
-
-  if (inActiveFrames && !me.hasHit) {
-    const originX = me.x + me.w * 0.5;
-    const originY = me.y + me.h * 0.5;
-
-    for (const r of getParticipantRoles()) {
-      if (r === myRole || isSameTeam(myRole, r)) continue;
-      const target = players[r];
-      if (!target || !target.active || target.stocks <= 0) continue;
-      if (doesMeleeHitEntity(hb, originX, originY, target)) {
-        me.hasHit = true;
-        if (!hb.isSmash && me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
-        if (hb.isSmash) {
-          const ratio = me.smashChargeRatio || 0;
-          let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
-          let finalKb = 14.5 * (1 + ratio * 0.45);
-          let pierceGuard = false;
-          let wasCrit = false;
-
-          if (me.charKey === "hammer") {
-            wasCrit = isHammerCritState(me, nowMs);
-            if (wasCrit) {
-              finalDmg += HAMMER_CRIT_BONUS_DMG; // 最大ダメージ +40
-              finalKb *= 1.45;
-              pierceGuard = true; // 会心攻撃はガード貫通
-            }
-            handleHammerHitProgress(me, wasCrit);
-          }
-          sendHitToTarget(target.role, finalDmg, finalKb, me.facing, null, 0.62, {
-            wasSmash: true,
-            wasLight: false,
-            wasCrit,
-            pierceGuard
-          });
-          me.smashChargeRatio = 0;
-          sendMyState(me, true);
-        } else {
-          const lightStats = getEffectiveLightStats(me, spec);
-          if (me.charKey === "guardian" && (me.invincibleTimer || 0) <= 0) {
-            me.guardianHits = (me.guardianHits || 0) + 1;
-            if (me.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
-              me.guardianHits = 0; me.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
-            }
-            sendMyState(me, true);
-          }
-          sendHitToTarget(target.role, lightStats.dmg, lightStats.basePower, me.facing, null, 0.62, { wasLight: true, wasSmash: false });
-        }
-        break;
-      }
-    }
-    if (!me.hasHit) {
-      if (hb.isSmash) {
-        const ratio = me.smashChargeRatio || 0;
-        let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
-        let finalKb = 14.5 * (1 + ratio * 0.45);
-        let wasCrit = false;
-        if (me.charKey === "hammer") {
-          wasCrit = isHammerCritState(me, nowMs);
-          if (wasCrit) {
-            finalDmg += HAMMER_CRIT_BONUS_DMG;
-            finalKb *= 1.45;
-          }
-        }
-        if (checkHitEnemyClonesByBox(hb, finalDmg, finalKb, me.facing, null, 0.62, null, originX, originY, false, { wasSmash: true, wasLight: false })) {
-          if (me.charKey === "hammer") handleHammerHitProgress(me, wasCrit);
-          me.hasHit = true; me.smashChargeRatio = 0; sendMyState(me, true);
-        }
-      } else {
-        const lightStats = getEffectiveLightStats(me, spec);
-        if (checkHitEnemyClonesByBox(hb, lightStats.dmg, lightStats.basePower, me.facing, null, 0.62, null, originX, originY, false, { wasLight: true, wasSmash: false })) me.hasHit = true;
-      }
-    }
-  }
+  processEntityMeleeHits(me, nowMs);
 
   if (me.x < -160 || me.x > canvas.width + 160 || me.y > canvas.height + 160) {
-    me.stocks = Math.max(0, me.stocks - 1);
-    me.percent = 0; me.vx = 0; me.vy = 0; me.stun = 0; me.frozen = false;
-    me.jumps = maxJumps; me.shielding = false; me.burnedOut = false; me.shieldHp = MAX_SHIELD;
-    me.smashCharging = false; me.hasHit = false; me.enhanceLevel = 0; me.enhanceCooldownUntil = 0;
-    resetHammerCritAndCharge(me);
-    me.guardianHits = 0;
-    if (clones[myRole]) { delete clones[myRole]; me.hasClone = false; sendCloneSync(null); }
-    me.mp = MAX_MP;
-    burnDebuffs = burnDebuffs.filter(b => b.targetRole !== myRole);
-    if (me.stocks > 0) {
-      const sp = getSpawnPoint(myRole);
-      me.x = sp.x; me.y = sp.y; me.facing = sp.facing;
-      me.invincibleTimer = RESPAWN_INVINCIBLE_FRAMES; // 復活時5秒無敵
-    } else {
-      me.invincibleTimer = 0;
-    }
-    sendMyState(me, true);
-    checkMatchEndCondition();
+    handleEntityRingOut(me);
     return;
   }
 
@@ -3230,18 +3849,21 @@ function updateProjectiles(dtScale) {
       continue;
     }
 
-    if (!isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked && !isSpectator && myRole !== 0 && pr.ownerRole === myRole) {
+    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+      ((pr.ownerRole === myRole && !isSpectator) || (isPracticeMode && pr.ownerRole === 2));
+
+    if (isAuthoritative) {
       for (const r of getParticipantRoles()) {
-        if (r === myRole || isSameTeam(myRole, r)) continue;
+        if (r === pr.ownerRole || isSameTeam(pr.ownerRole, r)) continue;
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
         if (rectsOverlap(projBox, target) || segmentIntersectsRect(prevX + 7, prevY + 7, pr.x + 7, pr.y + 7, target.x, target.y, target.w, target.h)) {
-          sendHitToTarget(target.role, pr.dmg, pr.basePower, pr.dir, null, 0.62, { wasLight: true });
+          sendHitFromActorToTarget(pr.ownerRole, target.role, pr.dmg, pr.basePower, pr.dir, null, 0.62, { wasLight: true });
           projectiles.splice(i, 1); break;
         }
       }
       if (!projectiles[i]) continue;
-      if (checkHitEnemyClonesByBox(projBox, pr.dmg, pr.basePower, pr.dir, null, 0.62, null, null, null, false, { wasLight: true })) {
+      if (checkHitEnemyClonesByBoxForActor(pr.ownerRole, projBox, pr.dmg, pr.basePower, pr.dir, null, 0.62, null, null, null, false, { wasLight: true })) {
         projectiles.splice(i, 1); continue;
       }
     }
@@ -3267,6 +3889,7 @@ function loop(now) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   updateMyPlayer(dtScale, now);
+  updatePracticeBot(dtScale, now);
   updateMyClone(dtScale, now);
   updateBurnDebuffs(dtScale);
   updateBeams(dtScale);
@@ -3322,7 +3945,7 @@ function loop(now) {
         const cName = (CHAR_SPECS[activeCl.charKey] || CHAR_SPECS.fighter).shortName;
         ctx.fillStyle = "#2dd4bf";
         ctx.fillText(`👥召喚中:${cName}(${Math.floor(activeCl.percent)}%)`, p.x - 32, p.y - 24);
-      } else if (r === myRole && remMs > 0) {
+      } else if ((r === myRole || (isPracticeMode && r === 2)) && remMs > 0) {
         ctx.fillStyle = "#cbd5e1";
         ctx.fillText(`👥召喚CT ${(remMs / 1000).toFixed(1)}s`, p.x - 24, p.y - 24);
       } else {
@@ -3405,7 +4028,7 @@ function loop(now) {
       ctx.fillText("💫 BURNOUT!", p.x - 18, p.y - 22);
     }
 
-    const teamTag = gameMode === "team2v2" ? `[${getTeamOfRole(r)}]` : "";
+    const teamTag = (!isPracticeMode && gameMode === "team2v2") ? `[${getTeamOfRole(r)}]` : "";
     ctx.font = "bold 12px sans-serif"; ctx.fillStyle = "#f8fafc";
     ctx.fillText(`${pName}${teamTag}(${spec.shortName})`, p.x - 20, p.y - 8);
 
@@ -3493,9 +4116,11 @@ function loop(now) {
     ctx.fillStyle = "rgba(15, 23, 42, 0.74)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#38bdf8"; ctx.textAlign = "center";
-    ctx.fillText(`🏠 公開待機部屋（${activeRoles.length} / ${MAX_LOBBY_PLAYERS} 人入室中）`, canvas.width / 2, 175);
+    ctx.fillText(`🏠 公開待機部屋（ロビー・${activeRoles.length} / ${MAX_LOBBY_PLAYERS} 人入室中）`, canvas.width / 2, 165);
     ctx.font = "17px sans-serif"; ctx.fillStyle = "#cbd5e1";
-    ctx.fillText("上の「🔑 合言葉」欄に同じ合言葉を入力して「合言葉入室」を押すと対戦部屋へ進めます", canvas.width / 2, 225);
+    ctx.fillText("上の「🔑 合言葉」欄に同じ合言葉を入力して「合言葉入室」を押すと対人戦へ進めます", canvas.width / 2, 215);
+    ctx.font = "bold 17px sans-serif"; ctx.fillStyle = "#2dd4bf";
+    ctx.fillText("1人でCPU（Lv.1～10）と対決したい場合は上の「🤖 練習場」を押してください", canvas.width / 2, 255);
     ctx.textAlign = "left";
   } else if (isRoomFullBlocked) {
     ctx.fillStyle = "rgba(15, 23, 42, 0.84)";
@@ -3503,7 +4128,7 @@ function loop(now) {
     ctx.font = "bold 34px sans-serif"; ctx.fillStyle = "#f87171"; ctx.textAlign = "center";
     ctx.fillText(`🚫 満員（${MAX_BATTLE_PLAYERS}/${MAX_BATTLE_PLAYERS}人）のため入れません`, canvas.width / 2, 185);
     ctx.font = "17px sans-serif"; ctx.fillStyle = "#cbd5e1";
-    ctx.fillText("別の合言葉を入力するか、「公開待機部屋」へ戻ってください", canvas.width / 2, 230);
+    ctx.fillText("別の合言葉を入力するか、「公開待機部屋（ロビー）」へ戻ってください", canvas.width / 2, 230);
     ctx.textAlign = "left";
   } else if (entryBlockedByHost) {
     ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
@@ -3511,7 +4136,7 @@ function loop(now) {
     ctx.font = "bold 30px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
     ctx.fillText("🔒 ホストが入室するまで入れません", canvas.width / 2, 210);
     ctx.textAlign = "left";
-  } else if (phase === "map_select") {
+  } else if (!isPracticeMode && phase === "map_select") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#38bdf8"; ctx.textAlign = "center";
@@ -3519,7 +4144,7 @@ function loop(now) {
     ctx.font = "17px sans-serif"; ctx.fillStyle = "#f8fafc";
     ctx.fillText(isHost() ? "マップを選んで「このマップでキャラ選択へ」を押してください" : "ホストがマップを決定するのを待っています...", canvas.width / 2, 225);
     ctx.textAlign = "left";
-  } else if (phase === "char_select") {
+  } else if (!isPracticeMode && phase === "char_select") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#4ade80"; ctx.textAlign = "center";
@@ -3535,7 +4160,7 @@ function loop(now) {
     ctx.font = "16px sans-serif"; ctx.fillStyle = "#cbd5e1";
     ctx.fillText(`マップ：${st.name} ｜ 全員「✅ 完了にする」を押すと10秒カウントが始まります`, canvas.width / 2, 250);
     ctx.textAlign = "left";
-  } else if (phase === "countdown") {
+  } else if (!isPracticeMode && phase === "countdown") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = "bold 40px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
@@ -3556,9 +4181,14 @@ function loop(now) {
       ctx.fillText(`${getDisplayNameOfRole(winnerInfo.winnerRole)} WIN!`, canvas.width / 2, 190);
     }
     ctx.font = "17px sans-serif"; ctx.fillStyle = "#fbbf24";
-    ctx.fillText(`${resultSecLeft} 秒後にマップ選択へ戻ります（観戦中の方も次から参加）...`, canvas.width / 2, 245);
+    ctx.fillText(
+      isPracticeMode
+        ? `${resultSecLeft} 秒後に練習場を再スタートします...`
+        : `${resultSecLeft} 秒後にマップ選択へ戻ります（観戦中の方も次から参加）...`,
+      canvas.width / 2, 245
+    );
     ctx.textAlign = "left";
-  } else if (phase === "playing" && isSpectator) {
+  } else if (!isPracticeMode && phase === "playing" && isSpectator) {
     ctx.font = "bold 16px sans-serif"; ctx.fillStyle = "#38bdf8"; ctx.textAlign = "center";
     ctx.fillText("👀 観戦中（試合終了後に自動で参加へ切り替わります）", canvas.width / 2, 85);
     ctx.textAlign = "left";
@@ -3577,7 +4207,7 @@ function loop(now) {
       const pos = hudPositions[r];
       const pColor = getColorOfRole(r);
       const pName = getDisplayNameOfRole(r);
-      const teamLabel = gameMode === "team2v2" ? ` [${getTeamOfRole(r)}]` : "";
+      const teamLabel = (!isPracticeMode && gameMode === "team2v2") ? ` [${getTeamOfRole(r)}]` : "";
       ctx.font = "bold 18px sans-serif"; ctx.fillStyle = pColor;
       ctx.fillText(`${pName}${teamLabel}: ${p.percent}%`, pos.x, pos.y);
       renderStocks(p.stocks, pos.x + 6, pos.y + 20, pColor);
@@ -3604,7 +4234,7 @@ function loop(now) {
         const cl = clones[r];
         const remMs = Math.max(0, (p.summonCooldownUntil || 0) - now);
         ctx.font = "bold 13px sans-serif"; ctx.fillStyle = cl && cl.active ? "#2dd4bf" : "#94a3b8";
-        ctx.fillText(cl && cl.active ? `召喚: ${Math.floor(cl.percent)}%` : (r === myRole && remMs > 0 ? `CT: ${(remMs / 1000).toFixed(0)}s` : `召喚: 待機`), pos.x + 115, pos.y + 24);
+        ctx.fillText(cl && cl.active ? `召喚: ${Math.floor(cl.percent)}%` : ((r === myRole || (isPracticeMode && r === 2)) && remMs > 0 ? `CT: ${(remMs / 1000).toFixed(0)}s` : `召喚: 待機`), pos.x + 115, pos.y + 24);
       }
     }
   }
