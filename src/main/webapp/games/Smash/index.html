@@ -399,7 +399,7 @@
 </div>
 
 <div id="controls-guide">
-  操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃 ｜ <b>K</b> スマッシュ（召喚：クローン召喚 / 精霊魔法：魔法発動） ｜ <b>I</b> 魔法切替（精霊魔法） ｜ <b>J</b> バリア
+  操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃 ｜ <b>K</b> スマッシュ（召喚：クローン / 精霊魔法：発動 / トラッパー：設置） ｜ <b>I</b> 切替（精霊魔法・トラッパー） ｜ <b>J</b> バリア
 </div>
 
 <script>
@@ -780,7 +780,39 @@ const MAGIC_INFO = {
   magic: { label: "マダンテ", cost: "全MP", minCost: 10, color: "#fde047", beamColor: "rgba(253, 224, 71, 0.75)" }
 };
 
-const CHAR_ORDER = ["fighter", "guardian", "mage", "enhancer", "jumper", "elementalist", "hammer", "summoner"];
+const TRAP_MODES = ["explosion", "stun", "wind"];
+const TRAP_INFO = {
+  explosion: {
+    label: "爆発",
+    shortLabel: "爆発(20/上)",
+    color: "#ef4444",
+    waveColor: "rgba(239, 68, 68, 0.45)",
+    cooldownMs: 1200,
+    lifeFrames: 720,
+    radius: 46
+  },
+  stun: {
+    label: "スタン",
+    shortLabel: "スタン(3秒)",
+    color: "#facc15",
+    waveColor: "rgba(250, 204, 21, 0.40)",
+    cooldownMs: 1200,
+    lifeFrames: 720,
+    radius: 44
+  },
+  wind: {
+    label: "吹き飛ばし",
+    shortLabel: "風(横)",
+    color: "#38bdf8",
+    waveColor: "rgba(56, 189, 248, 0.42)",
+    cooldownMs: 1000,
+    lifeFrames: 720,
+    radius: 54
+  }
+};
+const MAX_TRAPS_PER_OWNER = 2;
+
+const CHAR_ORDER = ["fighter", "guardian", "mage", "enhancer", "jumper", "elementalist", "hammer", "summoner", "trapper"];
 const CHAR_SPECS = {
   fighter: {
     name: "🥊 格闘タイプ",
@@ -906,6 +938,22 @@ const CHAR_SPECS = {
     weight: 0.98,
     lightDmg: 7,
     lightCooldown: 13,
+    smashDmg: 12,
+    smashCooldown: 24,
+    shieldDrain: 0.40
+  },
+  trapper: {
+    name: "💣 トラッパータイプ",
+    shortName: "トラッパー",
+    desc: "I切替(爆発20/スタン3秒/風)・K地上設置(2個まで・3個目で最古が即爆発・自分のみ可視)",
+    color: "#f97316",
+    moveAcc: 0.92,
+    friction: 0.82,
+    jumpPower: -11.1,
+    maxJumps: 2,
+    weight: 0.96,
+    lightDmg: 6,
+    lightCooldown: 12,
     smashDmg: 12,
     smashCooldown: 24,
     shieldDrain: 0.40
@@ -1038,6 +1086,8 @@ let beams = [];
 let ringEffects = [];
 let burnDebuffs = [];
 let clones = {};
+let traps = [];
+let trapEffects = [];
 let chatMessages = [];
 
 function initStageGimmicks(stage, resetPhase = false) {
@@ -1475,6 +1525,8 @@ function makePlayer(roleNum, charKey) {
     hasClone: false,
     mp: MAX_MP,
     magicMode: "fire",
+    trapMode: "explosion",
+    trapCooldownUntil: 0,
     frozen: false,
     stun: 0,
     shielding: false,
@@ -1843,7 +1895,7 @@ function resetSinglePlayer(p, roleNum) {
   resetHammerCritAndCharge(p);
   p.guardianHits = 0; p.invincibleTimer = 0;
   p.summonCooldownUntil = 0; p.hasClone = false;
-  p.mp = MAX_MP; p.magicMode = "fire"; p.frozen = false;
+  p.mp = MAX_MP; p.magicMode = "fire"; p.trapMode = "explosion"; p.trapCooldownUntil = 0; p.frozen = false;
   p.shielding = false; p.shieldHp = MAX_SHIELD; p.burnedOut = false;
 }
 
@@ -1888,6 +1940,8 @@ function resetPlayersForNewMatch() {
   ringEffects = [];
   burnDebuffs = [];
   clones = {};
+  traps = [];
+  trapEffects = [];
   winnerInfo = null;
   gameOverSent = false;
 }
@@ -2841,6 +2895,40 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
     return;
   }
 
+  if (effect === "trap_stun_3s") {
+    if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
+      targetEntity.shieldHp -= 20;
+      if (targetEntity.shieldHp <= 0) triggerBurnout(targetEntity);
+      return;
+    }
+    if (pierceGuard) targetEntity.shielding = false;
+    targetEntity.percent += (dmg || 4);
+    targetEntity.stun = Math.max(targetEntity.stun, 180);
+    targetEntity.vx = 0;
+    targetEntity.vy = 0;
+    targetEntity.shielding = false;
+    targetEntity.smashCharging = false;
+    return;
+  }
+
+  if (effect === "trap_wind") {
+    if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
+      targetEntity.shieldHp -= 18;
+      targetEntity.vx = (dir || 1) * 8.5;
+      if (targetEntity.shieldHp <= 0) triggerBurnout(targetEntity);
+      return;
+    }
+    if (pierceGuard) targetEntity.shielding = false;
+    targetEntity.percent += (dmg || 8);
+    const kbScale = (1 + targetEntity.percent * 0.015) / spec.weight;
+    targetEntity.vx = (dir || 1) * (basePower || 17.0) * kbScale;
+    targetEntity.vy = -3.4 * Math.max(0.85, kbScale * 0.7);
+    targetEntity.stun = Math.max(targetEntity.stun, 24);
+    targetEntity.shielding = false;
+    targetEntity.smashCharging = false;
+    return;
+  }
+
   if (targetEntity.shielding && !targetEntity.burnedOut && !pierceGuard) {
     targetEntity.shieldHp -= dmg * 2.2;
     targetEntity.percent += Math.floor(dmg * 0.15);
@@ -2920,6 +3008,18 @@ function applyHitToCloneByOwner(ownerRole, dmg, basePower, dir, effect = null, u
   if (effect === "freeze") {
     cl.stun = Math.max(cl.stun || 0, 45);
     cl.percent += 4;
+  } else if (effect === "trap_stun_3s") {
+    cl.stun = Math.max(cl.stun || 0, 180);
+    cl.vx = 0;
+    cl.vy = 0;
+    cl.percent += (dmg || 4);
+  } else if (effect === "trap_wind") {
+    const spec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
+    const kbScale = (1 + cl.percent * 0.015) / spec.weight;
+    cl.percent += (dmg || 8);
+    cl.vx = (dir || 1) * (basePower || 17.0) * kbScale;
+    cl.vy = -3.4;
+    cl.stun = Math.max(cl.stun || 0, 24);
   } else if (effect === "burn") {
     cl.percent += 15;
   } else {
@@ -3183,6 +3283,7 @@ function attachSocketHandlers(socket) {
         spectatorRoles.delete(leftRole);
         const remaining = activeRoles.filter(r => r !== leftRole);
         delete clones[leftRole];
+        traps = traps.filter(t => t.ownerRole !== leftRole);
         if (players[leftRole]) {
           players[leftRole].active = false;
           players[leftRole].spectator = false;
@@ -3293,6 +3394,20 @@ function attachSocketHandlers(socket) {
     } else if (data.type === "ring") {
       if (isPublicLobbyRoom() || phase === "gameover") return;
       if (data.ring && data.ring.ownerRole !== myRole) ringEffects.push(data.ring);
+    } else if (data.type === "trap_place") {
+      if (isPublicLobbyRoom() || phase === "gameover") return;
+      if (data.trap && data.trap.ownerRole !== myRole) {
+        traps = traps.filter(t => t.id !== data.trap.id);
+        traps.push(data.trap);
+      }
+    } else if (data.type === "trap_detonate") {
+      if (isPublicLobbyRoom() || phase === "gameover") return;
+      if (data.trapId) {
+        traps = traps.filter(t => t.id !== data.trapId);
+      }
+      if (data.effectObj && data.effectObj.ownerRole !== myRole) {
+        trapEffects.push(data.effectObj);
+      }
     } else if (data.type === "hit_confirm") {
       if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
       if (data.attackerRole !== myRole) return;
@@ -3382,6 +3497,52 @@ function attachSocketHandlers(socket) {
         return;
       }
 
+      if (data.effect === "trap_stun_3s") {
+        if (me.charKey === "hammer") {
+          const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
+          if (hRes.changed) sendMyState(me, true);
+        }
+        if (me.shielding && !me.burnedOut && !pierceGuard) {
+          me.shieldHp -= 20;
+          if (me.shieldHp <= 0) triggerBurnout(me);
+          sendMyState(me, true);
+          return;
+        }
+        if (pierceGuard) me.shielding = false;
+        me.percent += (data.dmg || 4);
+        me.stun = Math.max(me.stun, 180);
+        me.vx = 0;
+        me.vy = 0;
+        me.shielding = false;
+        me.smashCharging = false;
+        sendMyState(me, true);
+        return;
+      }
+
+      if (data.effect === "trap_wind") {
+        if (me.charKey === "hammer") {
+          const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
+          if (hRes.changed) sendMyState(me, true);
+        }
+        if (me.shielding && !me.burnedOut && !pierceGuard) {
+          me.shieldHp -= 18;
+          me.vx = (data.dir || 1) * 8.5;
+          if (me.shieldHp <= 0) triggerBurnout(me);
+          sendMyState(me, true);
+          return;
+        }
+        if (pierceGuard) me.shielding = false;
+        me.percent += (data.dmg || 8);
+        const kbScale = (1 + me.percent * 0.015) / spec.weight;
+        me.vx = (data.dir || 1) * (data.basePower || 17.0) * kbScale;
+        me.vy = -3.4 * Math.max(0.85, kbScale * 0.7);
+        me.stun = Math.max(me.stun, 24);
+        me.shielding = false;
+        me.smashCharging = false;
+        sendMyState(me, true);
+        return;
+      }
+
       applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62, pierceGuard, { wasSmash, wasLight });
     }
   };
@@ -3416,7 +3577,7 @@ function connectToPassphrase(nextPassphrase, updateUrl = true) {
   entryBlockedByHost = false;
   winnerInfo = null;
   gameOverSent = false;
-  projectiles = []; beams = []; ringEffects = []; burnDebuffs = []; clones = {};
+  projectiles = []; beams = []; ringEffects = []; burnDebuffs = []; clones = {}; traps = []; trapEffects = [];
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
     resetSinglePlayer(players[r], r);
     players[r].active = false;
@@ -3583,10 +3744,286 @@ function canUseElementMagicMode(actor, mode) {
   return curMp >= info.cost;
 }
 
+function cycleTrapMode(me) {
+  if (!me || me.charKey !== "trapper") return;
+  const curIdx = TRAP_MODES.indexOf(me.trapMode);
+  me.trapMode = TRAP_MODES[(curIdx + 1) % TRAP_MODES.length];
+  if (me.role === myRole) sendMyState(me, true);
+}
+
+function canUseTrapAction(actor, nowMs = performance.now()) {
+  if (!actor || actor.charKey !== "trapper") return false;
+  if (actor.stocks <= 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
+  return nowMs >= (actor.trapCooldownUntil || 0);
+}
+
+function detonateTrapInPlace(trap) {
+  if (!trap || trap.triggered) return;
+  trap.triggered = true;
+  traps = traps.filter(t => t.id !== trap.id);
+
+  const cx = trap.x + trap.w * 0.5;
+  const cy = trap.y + trap.h * 0.5;
+  const info = TRAP_INFO[trap.mode] || TRAP_INFO.explosion;
+  const blastRadius = info.radius + 14;
+
+  const effectObj = {
+    ownerRole: trap.ownerRole,
+    mode: trap.mode,
+    cx,
+    cy,
+    radius: blastRadius,
+    life: 20,
+    maxLife: 20,
+    dir: 1
+  };
+  trapEffects.push(effectObj);
+
+  if (!isPracticeMode && trap.ownerRole === myRole && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "trap_detonate", trapId: trap.id, effectObj }));
+  }
+
+  const canApplyEffect = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
+    ((trap.ownerRole === myRole && !isSpectator) || (isPracticeMode && trap.ownerRole === 2));
+
+  if (!canApplyEffect) return;
+
+  for (const r of getParticipantRoles()) {
+    if (r === trap.ownerRole || isSameTeam(trap.ownerRole, r)) continue;
+    const target = players[r];
+    if (!target || !target.active || target.stocks <= 0) continue;
+    const closestX = Math.max(target.x, Math.min(cx, target.x + target.w));
+    const closestY = Math.max(target.y, Math.min(cy, target.y + target.h));
+    if (Math.hypot(closestX - cx, closestY - cy) <= blastRadius) {
+      const dir = ((target.x + target.w * 0.5) >= cx) ? 1 : -1;
+      if (trap.mode === "explosion") {
+        sendHitFromActorToTarget(trap.ownerRole, target.role, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+      } else if (trap.mode === "stun") {
+        sendHitFromActorToTarget(trap.ownerRole, target.role, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+      } else if (trap.mode === "wind") {
+        sendHitFromActorToTarget(trap.ownerRole, target.role, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+      }
+    }
+  }
+
+  for (const ownerStr of Object.keys(clones)) {
+    const ownerRole = Number(ownerStr);
+    if (ownerRole === trap.ownerRole || isSameTeam(trap.ownerRole, ownerRole) || isRoleSpectating(ownerRole)) continue;
+    const cl = clones[ownerRole];
+    if (!cl || !cl.active) continue;
+    const closestX = Math.max(cl.x, Math.min(cx, cl.x + cl.w));
+    const closestY = Math.max(cl.y, Math.min(cy, cl.y + cl.h));
+    if (Math.hypot(closestX - cx, closestY - cy) <= blastRadius) {
+      const dir = ((cl.x + cl.w * 0.5) >= cx) ? 1 : -1;
+      if (trap.mode === "explosion") {
+        sendHitFromActorToClone(trap.ownerRole, ownerRole, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+      } else if (trap.mode === "stun") {
+        sendHitFromActorToClone(trap.ownerRole, ownerRole, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+      } else if (trap.mode === "wind") {
+        sendHitFromActorToClone(trap.ownerRole, ownerRole, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+      }
+    }
+  }
+}
+
+function tryPlaceTrapForEntity(actor, nowMs = performance.now()) {
+  if (!canUseTrapAction(actor, nowMs)) return false;
+  if (!actor.onGround) return false;
+  const mode = TRAP_INFO[actor.trapMode] ? actor.trapMode : "explosion";
+  const info = TRAP_INFO[mode];
+
+  // 既に2個置いてある状態で3個目を置こうとしたら、一番古いトラップがその場で即爆発する
+  const ownedTraps = traps.filter(t => t.ownerRole === actor.role);
+  if (ownedTraps.length >= MAX_TRAPS_PER_OWNER) {
+    const oldest = ownedTraps[0];
+    detonateTrapInPlace(oldest);
+  }
+
+  const trapX = actor.x + actor.w * 0.5 - 12;
+  const trapY = actor.y + actor.h - 20;
+
+  const newTrap = {
+    id: `${actor.role}_${nowMs}_${Math.random().toString(36).slice(2, 7)}`,
+    ownerRole: actor.role,
+    mode,
+    x: trapX,
+    y: trapY,
+    w: 24,
+    h: 20,
+    life: info.lifeFrames,
+    armDelay: 18,
+    triggered: false
+  };
+
+  traps.push(newTrap);
+  actor.trapCooldownUntil = nowMs + info.cooldownMs;
+
+  if (!isPracticeMode && actor.role === myRole && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "trap_place", trap: newTrap }));
+  }
+  if (actor.role === myRole) sendMyState(actor, true);
+  return true;
+}
+
+function triggerTrapExplosion(trap, victimRole, victimEntity, isClone = false) {
+  if (!trap || trap.triggered) return;
+  trap.triggered = true;
+  traps = traps.filter(t => t.id !== trap.id);
+
+  const cx = trap.x + trap.w * 0.5;
+  const cy = trap.y + trap.h * 0.5;
+  const info = TRAP_INFO[trap.mode] || TRAP_INFO.explosion;
+  const dir = victimEntity ? ((victimEntity.x + victimEntity.w * 0.5) >= cx ? 1 : -1) : 1;
+
+  const effectObj = {
+    ownerRole: trap.ownerRole,
+    mode: trap.mode,
+    cx,
+    cy,
+    radius: info.radius,
+    life: 18,
+    maxLife: 18,
+    dir
+  };
+  trapEffects.push(effectObj);
+
+  if (!isPracticeMode && trap.ownerRole === myRole && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "trap_detonate", trapId: trap.id, effectObj }));
+  }
+
+  const canApplyEffect = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
+    ((trap.ownerRole === myRole && !isSpectator) || (isPracticeMode && trap.ownerRole === 2));
+
+  if (!canApplyEffect || !victimEntity) return;
+
+  if (trap.mode === "explosion") {
+    if (isClone) {
+      sendHitFromActorToClone(trap.ownerRole, victimRole, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+    } else {
+      sendHitFromActorToTarget(trap.ownerRole, victimRole, 20, 16.5, dir, null, 1.15, { wasSmash: true });
+    }
+  } else if (trap.mode === "stun") {
+    if (isClone) {
+      sendHitFromActorToClone(trap.ownerRole, victimRole, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+    } else {
+      sendHitFromActorToTarget(trap.ownerRole, victimRole, 4, 0, dir, "trap_stun_3s", 0.2, { wasLight: true });
+    }
+  } else if (trap.mode === "wind") {
+    if (isClone) {
+      sendHitFromActorToClone(trap.ownerRole, victimRole, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+    } else {
+      sendHitFromActorToTarget(trap.ownerRole, victimRole, 8, 17.0, dir, "trap_wind", 0.15, { wasSmash: true });
+    }
+  }
+}
+
+function updateTraps(dtScale) {
+  for (let i = traps.length - 1; i >= 0; i--) {
+    const tr = traps[i];
+    tr.life -= dtScale;
+    if (tr.armDelay > 0) tr.armDelay = Math.max(0, tr.armDelay - dtScale);
+
+    if (tr.life <= 0) {
+      traps.splice(i, 1);
+      continue;
+    }
+
+    if (tr.armDelay > 0) continue;
+
+    const isOwnerAuth = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
+      ((tr.ownerRole === myRole && !isSpectator) || (isPracticeMode && tr.ownerRole === 2));
+
+    if (!isOwnerAuth) continue;
+
+    for (const r of getParticipantRoles()) {
+      if (r === tr.ownerRole || isSameTeam(tr.ownerRole, r)) continue;
+      const target = players[r];
+      if (!target || !target.active || target.stocks <= 0) continue;
+      if (rectsOverlap(tr, target)) {
+        triggerTrapExplosion(tr, target.role, target, false);
+        break;
+      }
+    }
+
+    if (traps.includes(tr)) {
+      for (const ownerStr of Object.keys(clones)) {
+        const ownerRole = Number(ownerStr);
+        if (ownerRole === tr.ownerRole || isSameTeam(tr.ownerRole, ownerRole) || isRoleSpectating(ownerRole)) continue;
+        const cl = clones[ownerRole];
+        if (!cl || !cl.active) continue;
+        if (rectsOverlap(tr, cl)) {
+          triggerTrapExplosion(tr, ownerRole, cl, true);
+          break;
+        }
+      }
+    }
+  }
+
+  for (let i = trapEffects.length - 1; i >= 0; i--) {
+    trapEffects[i].life -= dtScale;
+    if (trapEffects[i].life <= 0) trapEffects.splice(i, 1);
+  }
+}
+
+function drawTrapsAndEffects(now) {
+  // トラッパーを使っている本人（myRole）にのみ地雷が見える
+  for (const tr of traps) {
+    if (tr.ownerRole !== myRole) continue;
+    const info = TRAP_INFO[tr.mode] || TRAP_INFO.explosion;
+    const armed = (tr.armDelay || 0) <= 0;
+    ctx.save();
+    ctx.globalAlpha = armed ? 0.92 : 0.45;
+    ctx.fillStyle = info.color;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(tr.x, tr.y, tr.w, tr.h, 5);
+    } else {
+      ctx.rect(tr.x, tr.y, tr.w, tr.h);
+    }
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = armed ? 2 : 1;
+    ctx.stroke();
+
+    ctx.font = "bold 10px sans-serif";
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.fillText(armed ? info.label : "設置中", tr.x + tr.w * 0.5, tr.y - 4);
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  for (const fx of trapEffects) {
+    const info = TRAP_INFO[fx.mode] || TRAP_INFO.explosion;
+    const ratio = 1 - Math.max(0, fx.life / fx.maxLife);
+    const alpha = Math.max(0.1, fx.life / fx.maxLife);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (fx.mode === "wind") {
+      ctx.fillStyle = info.waveColor;
+      const windW = 140 * (0.4 + ratio * 0.8);
+      const windX = fx.dir === 1 ? fx.cx : fx.cx - windW;
+      ctx.fillRect(windX, fx.cy - 22, windW, 44);
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillStyle = "#e0f2fe";
+      ctx.fillText(fx.dir === 1 ? "💨 >>>" : "<<< 💨", fx.cx - 24, fx.cy - 28);
+    } else {
+      ctx.beginPath();
+      ctx.arc(fx.cx, fx.cy, Math.max(8, fx.radius * (0.35 + ratio * 0.75)), 0, Math.PI * 2);
+      ctx.fillStyle = info.waveColor;
+      ctx.fill();
+      ctx.strokeStyle = info.color;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function canUseStandardSmash(actor) {
   if (!actor || actor.stocks <= 0 || actor.cooldown > 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
   if (actor.atkTimer > 0 || actor.smashCharging) return false;
-  return !["enhancer", "elementalist", "summoner"].includes(actor.charKey);
+  return !["enhancer", "elementalist", "summoner", "trapper"].includes(actor.charKey);
 }
 
 function canUseStandardLight(actor) {
@@ -3664,11 +4101,15 @@ window.addEventListener("keydown", e => {
       if (e.code === "KeyW" && me.jumps > 0) { me.vy = spec.jumpPower; me.jumps--; }
       if (e.code === "KeyS") me.dropThroughTimer = 12;
       if (e.code === "KeyL") triggerAttack(false);
-      if (e.code === "KeyI" && me.charKey === "elementalist") cycleElementMagic(me);
+      if (e.code === "KeyI") {
+        if (me.charKey === "elementalist") cycleElementMagic(me);
+        else if (me.charKey === "trapper") cycleTrapMode(me);
+      }
       if (e.code === "KeyK") {
         if (me.charKey === "enhancer") tryEnhanceSelf(me);
         else if (me.charKey === "elementalist") castSelectedElementMagic(me);
         else if (me.charKey === "summoner") trySummonClone(me);
+        else if (me.charKey === "trapper") tryPlaceTrapForEntity(me);
         else if (me.cooldown <= 0 && !me.smashCharging && me.atkTimer <= 0) {
           me.smashCharging = true;
           me.smashChargeStart = Date.now();
@@ -3684,7 +4125,7 @@ window.addEventListener("keyup", e => {
   if (e.code === "KeyK" && hasEnteredLobby && !["INPUT", "SELECT"].includes(document.activeElement.tagName)) {
     if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0 || phase !== "playing" || (isPracticeMode && isPracticeStopped)) return;
     const me = players[myRole];
-    if (!me || me.charKey === "enhancer" || me.charKey === "elementalist" || me.charKey === "summoner" || !me.smashCharging) return;
+    if (!me || me.charKey === "enhancer" || me.charKey === "elementalist" || me.charKey === "summoner" || me.charKey === "trapper" || !me.smashCharging) return;
     me.smashCharging = false;
     triggerAttack(true, Math.min((Date.now() - me.smashChargeStart) / 1500, 1.0));
   }
@@ -3767,7 +4208,7 @@ function sendMyState(me, force = false) {
       critReady: me.critReady, critActive: me.critActive,
       critStartedAt: me.critStartedAt, critLightHitsAfterExpiry: me.critLightHitsAfterExpiry,
       guardianHits: me.guardianHits, invincibleTimer: me.invincibleTimer,
-      hasClone: me.hasClone, mp: me.mp, magicMode: me.magicMode,
+      hasClone: me.hasClone, mp: me.mp, magicMode: me.magicMode, trapMode: me.trapMode,
       frozen: me.frozen, stun: me.stun, charKey: me.charKey,
       shielding: me.shielding, shieldHp: me.shieldHp, burnedOut: me.burnedOut
     }
@@ -4206,6 +4647,7 @@ function handleEntityRingOut(actor) {
     actor.hasClone = false;
     if (actor.role === myRole) sendCloneSync(null);
   }
+  traps = traps.filter(t => t.ownerRole !== actor.role);
   actor.mp = MAX_MP;
   burnDebuffs = burnDebuffs.filter(b => b.targetRole !== actor.role);
   if (actor.stocks > 0) {
@@ -4312,6 +4754,17 @@ function buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, i
     candidates.push({
       type: "summon",
       weight: (isRecovering ? 0.04 : 0.022) * (0.5 + lvRatio)
+    });
+  }
+
+  if (!isRecovering && bot.onGround && canUseTrapAction(bot, nowMs) && lv >= 3) {
+    const chosenMode = (target && target.percent >= 85)
+      ? "explosion"
+      : (absDx < 130 ? (Math.random() < 0.55 ? "stun" : "wind") : "explosion");
+    candidates.push({
+      type: "trap",
+      mode: chosenMode,
+      weight: (0.024 + lvRatio * 0.03)
     });
   }
 
@@ -4525,6 +4978,9 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
               tryEnhanceSelfForEntity(bot);
             } else if (chosen.type === "summon") {
               trySummonCloneForRole(2);
+            } else if (chosen.type === "trap") {
+              bot.trapMode = chosen.mode || "explosion";
+              tryPlaceTrapForEntity(bot, nowMs);
             } else if (chosen.type === "magic") {
               bot.magicMode = chosen.mode;
               castSelectedElementMagic(bot);
@@ -4731,6 +5187,7 @@ function loop(now) {
     updateBurnDebuffs(dtScale);
     updateBeams(dtScale);
     updateRings(dtScale);
+    updateTraps(dtScale);
     updateProjectiles(dtScale);
   }
 
@@ -4906,6 +5363,20 @@ function loop(now) {
       ctx.fillText(`[${mInfo.label}:${mInfo.cost}] MP:${Math.floor(p.mp ?? MAX_MP)}`, p.x - 26, p.y - 22);
     }
 
+    if (p.charKey === "trapper") {
+      const tInfo = TRAP_INFO[p.trapMode] || TRAP_INFO.explosion;
+      const ownedCount = traps.filter(t => t.ownerRole === r).length;
+      const remMs = Math.max(0, (p.trapCooldownUntil || 0) - now);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = tInfo.color;
+      if (r === myRole) {
+        const ctText = remMs > 0 ? ` CT:${(remMs / 1000).toFixed(1)}s` : "";
+        ctx.fillText(`💣[${tInfo.label}] ${ownedCount}/${MAX_TRAPS_PER_OWNER}${ctText}`, p.x - 30, p.y - 22);
+      } else {
+        ctx.fillText(`💣トラッパー`, p.x - 18, p.y - 22);
+      }
+    }
+
     if (p.charKey === "hammer") {
       const ch = p.hammerCharge || 0;
       const isCrit = isHammerCritState(p, now);
@@ -4994,6 +5465,8 @@ function loop(now) {
     }
     ctx.restore();
   }
+
+  drawTrapsAndEffects(now);
 
   for (const rg of ringEffects) {
     const alpha = Math.max(0.1, rg.life / rg.maxLife);
@@ -5170,6 +5643,12 @@ function loop(now) {
         const remMs = Math.max(0, (p.summonCooldownUntil || 0) - now);
         ctx.font = "bold 13px sans-serif"; ctx.fillStyle = cl && cl.active ? "#2dd4bf" : "#94a3b8";
         ctx.fillText(cl && cl.active ? `召喚: ${Math.floor(cl.percent)}%` : ((r === myRole || (isPracticeMode && r === 2)) && remMs > 0 ? `CT: ${(remMs / 1000).toFixed(0)}s` : `召喚: 待機`), pos.x + 115, pos.y + 24);
+      }
+      if (p.charKey === "trapper") {
+        const tInfo = TRAP_INFO[p.trapMode] || TRAP_INFO.explosion;
+        const ownedCount = traps.filter(t => t.ownerRole === r).length;
+        ctx.font = "bold 13px sans-serif"; ctx.fillStyle = tInfo.color;
+        ctx.fillText(r === myRole ? `${tInfo.label} (${ownedCount}/2)` : `罠: 潜伏中`, pos.x + 115, pos.y + 24);
       }
     }
   }
