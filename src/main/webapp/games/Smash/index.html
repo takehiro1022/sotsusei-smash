@@ -430,16 +430,16 @@ const CHAT_MAX_ITEMS = 40;
 let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
 
 const BOT_LEVEL_LABELS = {
-  1: "Lv.1 (超入門・ほぼ棒立ち)",
-  2: "Lv.2 (入門・ゆっくり歩行)",
-  3: "Lv.3 (初級・基本攻撃のみ)",
-  4: "Lv.4 (初中級・ジャンプ復帰)",
-  5: "Lv.5 (中級・スマッシュ使用)",
-  6: "Lv.6 (中上級・固有技＆ガード)",
-  7: "Lv.7 (上級・積極追撃)",
-  8: "Lv.8 (熟練・コンボ＆回避)",
-  9: "Lv.9 (達人・立ち回り強化)",
-  10: "Lv.10 (手強いCPU・ギリ勝負)"
+  1: "Lv.1 (超入門・復帰MAX)",
+  2: "Lv.2 (入門・復帰MAX)",
+  3: "Lv.3 (初級・復帰MAX)",
+  4: "Lv.4 (初中級・復帰MAX)",
+  5: "Lv.5 (中級・復帰MAX)",
+  6: "Lv.6 (中上級・復帰MAX)",
+  7: "Lv.7 (上級・復帰MAX)",
+  8: "Lv.8 (熟練・復帰MAX)",
+  9: "Lv.9 (達人・復帰MAX)",
+  10: "Lv.10 (手強いCPU・復帰MAX)"
 };
 
 const COLOR_PALETTE = [
@@ -1732,6 +1732,31 @@ function findSolidBeneath(cx, footY) {
   }
   if (best) return best;
   return (st.solids && st.solids[0]) || { x: 170, y: 390, w: 740, h: 36 };
+}
+
+function findNearestRecoveryPlatform(cx, cy) {
+  const st = getCurrentStage();
+  const candidates = [
+    ...(st.solids || []),
+    ...(st.platforms || []),
+    ...(st.movingPlatforms || []),
+    ...getVisibleDisappearingPlatforms(st)
+  ];
+  if (candidates.length === 0) return { x: 360, y: 390, w: 360, h: 20 };
+  let best = candidates[0];
+  let bestScore = Infinity;
+  for (const s of candidates) {
+    const sx = Math.max(s.x + 12, Math.min(s.x + s.w - 12, cx));
+    const sy = s.y;
+    const dist = Math.hypot(sx - cx, sy - cy);
+    const heightPenalty = sy > cy + 40 ? 140 : 0;
+    const score = dist + heightPenalty;
+    if (score < bestScore) {
+      bestScore = score;
+      best = s;
+    }
+  }
+  return best;
 }
 
 function getTeamOfRole(role) {
@@ -4181,48 +4206,56 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
 
   if (target && bot.stun <= 0 && !bot.burnedOut && !bot.frozen) {
     const botCenterX = bot.x + bot.w * 0.5;
+    const botCenterY = bot.y + bot.h * 0.5;
     const botFootY = bot.y + bot.h;
-    const dx = (target.x + target.w * 0.5) - botCenterX;
-    const dy = (target.y + target.h * 0.5) - (bot.y + bot.h * 0.5);
+    const targetCenterX = target.x + target.w * 0.5;
+    const targetCenterY = target.y + target.h * 0.5;
+    const dx = targetCenterX - botCenterX;
+    const dy = targetCenterY - botCenterY;
     const absDx = Math.abs(dx);
     const ground = findSolidBeneath(botCenterX, botFootY);
     const onGround = Math.abs(botFootY - ground.y) <= 8;
-    const nearEdge = botCenterX < ground.x + 18 || botCenterX > ground.x + ground.w - 18;
-    const belowStage = botFootY > ground.y + 36;
+    const offGroundOrFalling = !onGround && (botFootY > ground.y + 12 || bot.vy > 1.2 || botCenterX < ground.x || botCenterX > ground.x + ground.w);
 
-    if (belowStage && lv >= 2) {
-      const stageMidX = canvas.width * 0.5;
-      const recoveryDir = stageMidX >= botCenterX ? 1 : -1;
-      bot.facing = recoveryDir;
-      wantMoveDir = recoveryDir * (0.45 + lv * 0.055);
-      if (bot.jumps > 0 && bot.vy > -1.0) {
+    if (offGroundOrFalling) {
+      const recPlat = findNearestRecoveryPlatform(botCenterX, botCenterY);
+      const safeTargetX = Math.max(recPlat.x + 24, Math.min(recPlat.x + recPlat.w - 24, targetCenterX));
+      const recDx = safeTargetX - botCenterX;
+      const recDir = Math.abs(recDx) > 8 ? Math.sign(recDx) : (canvas.width * 0.5 >= botCenterX ? 1 : -1);
+      bot.facing = recDir;
+      wantMoveDir = recDir * 1.0;
+
+      if (bot.jumps > 0 && (bot.vy > -1.5 || botCenterY > recPlat.y - 12)) {
         bot.vy = spec.jumpPower;
         bot.jumps--;
       }
     } else if (lv === 1) {
       bot.facing = dx >= 0 ? 1 : -1;
-      if (absDx < 52 && Math.abs(dy) < 36 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.015 * dtScale) {
+      if (dy < -45 && bot.jumps > 0 && bot.vy >= -1.5 && Math.random() < 0.04 * dtScale) {
+        bot.vy = spec.jumpPower;
+        bot.jumps--;
+      }
+      if (absDx < 56 && Math.abs(dy) < 38 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.025 * dtScale) {
         executeAttackForEntity(bot, false, 0);
       }
     } else {
-      const moveIntensity = 0.42 + (lv - 1) * 0.065;
-      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 220 : 48;
+      const moveIntensity = 0.65 + (lv - 1) * 0.04;
+      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 210 : 44;
 
       if (!bot.smashCharging) {
         bot.facing = dx >= 0 ? 1 : -1;
         if (absDx > desiredRange) {
-          if (onGround && nearEdge && Math.sign(dx) !== (botCenterX < ground.x + ground.w * 0.5 ? 1 : -1)) {
-            wantMoveDir = 0;
-          } else {
-            wantMoveDir = bot.facing * moveIntensity;
-          }
+          wantMoveDir = bot.facing * moveIntensity;
         }
       }
 
-      if (dy < -75 && absDx < 150 && bot.jumps > 0 && bot.vy >= -1.5 && Math.random() < (0.012 + lv * 0.005) * dtScale) {
-        bot.vy = spec.jumpPower;
-        bot.jumps--;
-      } else if (dy > 75 && absDx < 130 && onGround && lv >= 4 && Math.random() < 0.025 * dtScale) {
+      if (dy < -42 && bot.jumps > 0 && bot.vy >= -1.5) {
+        const jumpProb = Math.min(0.22, 0.045 + lv * 0.015);
+        if (Math.random() < jumpProb * dtScale) {
+          bot.vy = spec.jumpPower;
+          bot.jumps--;
+        }
+      } else if (dy > 75 && absDx < 140 && onGround && lv >= 4 && Math.random() < 0.035 * dtScale) {
         wantDropThrough = true;
       }
 
