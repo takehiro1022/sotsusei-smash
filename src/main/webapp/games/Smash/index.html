@@ -629,9 +629,9 @@ const STAGES = {
       { x: 440, y: 205, w: 200, h: 14 }
     ],
     movingPlatforms: [
-      { x: 375, y: 330, w: 150, h: 15, baseX: 375, baseY: 330, moveX: 0, moveY: -100, speed: 0.025, phase: 0, dx: 0, dy: 0 },
-      { x: 555, y: 230, w: 150, h: 15, baseX: 555, baseY: 230, moveX: 0, moveY: 100, speed: 0.025, phase: 0, dx: 0, dy: 0 },
-      { x: 220, y: 265, w: 140, h: 14, baseX: 220, baseY: 265, moveX: 90, moveY: 0, speed: 0.022, phase: 1.0, dx: 0, dy: 0 }
+      { x: 375, y: 330, w: 150, h: 16, baseX: 375, baseY: 330, moveX: 0, moveY: -95, speed: 0.03, phase: 0, t: 0, dx: 0, dy: 0 },
+      { x: 555, y: 235, w: 150, h: 16, baseX: 555, baseY: 235, moveX: 0, moveY: 95, speed: 0.03, phase: 0, t: 0, dx: 0, dy: 0 },
+      { x: 220, y: 265, w: 145, h: 15, baseX: 220, baseY: 265, moveX: 85, moveY: 0, speed: 0.028, phase: 1.2, t: 1.2, dx: 0, dy: 0 }
     ],
     spawns: {
       1: { x: 190, y: 240, facing: 1 },
@@ -1040,13 +1040,18 @@ let burnDebuffs = [];
 let clones = {};
 let chatMessages = [];
 
-function initStageGimmicks(stage) {
+function initStageGimmicks(stage, resetPhase = false) {
   if (!stage) return;
   if (Array.isArray(stage.movingPlatforms)) {
     stage.movingPlatforms.forEach(mp => {
       mp.baseX = typeof mp.baseX === "number" ? mp.baseX : mp.x;
       mp.baseY = typeof mp.baseY === "number" ? mp.baseY : mp.y;
-      mp.t = mp.phase || 0;
+      if (resetPhase || typeof mp.t !== "number") {
+        mp.t = typeof mp.phase === "number" ? mp.phase : 0;
+      }
+      const wave = Math.sin(mp.t);
+      mp.x = mp.baseX + (mp.moveX || 0) * wave;
+      mp.y = mp.baseY + (mp.moveY || 0) * wave;
       mp.dx = 0;
       mp.dy = 0;
     });
@@ -1066,14 +1071,14 @@ function getVisibleDisappearingPlatforms(stage) {
 function updateStageGimmicks(dtScale) {
   const st = getCurrentStage();
   if (!st) return;
-  initStageGimmicks(st);
+  initStageGimmicks(st, false);
   gimmickFrameCounter += dtScale;
 
   if (Array.isArray(st.movingPlatforms)) {
     st.movingPlatforms.forEach(mp => {
       const prevX = mp.x;
       const prevY = mp.y;
-      mp.t = (mp.t || 0) + (mp.speed || 0.025) * dtScale;
+      mp.t = (typeof mp.t === "number" ? mp.t : (mp.phase || 0)) + (mp.speed || 0.03) * dtScale;
       const wave = Math.sin(mp.t);
       const nextX = mp.baseX + (mp.moveX || 0) * wave;
       const nextY = mp.baseY + (mp.moveY || 0) * wave;
@@ -1710,12 +1715,22 @@ function findSolidBeneath(cx, footY) {
   const st = getCurrentStage();
   const candidates = [
     ...(st.solids || []),
+    ...(st.platforms || []),
     ...(st.movingPlatforms || []),
     ...getVisibleDisappearingPlatforms(st)
   ];
+  let best = null;
+  let bestDist = Infinity;
   for (const s of candidates) {
-    if (cx >= s.x - 10 && cx <= s.x + s.w + 10 && footY <= s.y + 40) return s;
+    if (cx >= s.x - 16 && cx <= s.x + s.w + 16 && s.y >= footY - 24) {
+      const d = s.y - footY;
+      if (d < bestDist) {
+        bestDist = d;
+        best = s;
+      }
+    }
   }
+  if (best) return best;
   return (st.solids && st.solids[0]) || { x: 170, y: 390, w: 740, h: 36 };
 }
 
@@ -1827,7 +1842,7 @@ function syncActivePlayersFromRoles() {
 
 function resetPlayersForNewMatch() {
   gimmickFrameCounter = 0;
-  initStageGimmicks(getCurrentStage());
+  initStageGimmicks(getCurrentStage(), true);
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) resetSinglePlayer(players[r], r);
   projectiles = [];
   beams = [];
@@ -2481,7 +2496,7 @@ function setStage(newStageKey, broadcastChange = true) {
   currentStageKey = newStageKey;
   stageSelectEl.value = currentStageKey;
   gimmickFrameCounter = 0;
-  initStageGimmicks(STAGES[currentStageKey]);
+  initStageGimmicks(STAGES[currentStageKey], true);
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
     const sp = getSpawnPoint(r);
     players[r].x = sp.x;
@@ -3683,13 +3698,13 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
 
   if (!canDropPlatforms && entity.vy >= 0) {
     for (const plat of (st.platforms || [])) {
-      if (prevBottom <= plat.y + 8 && nextBottom >= plat.y && entity.x + entity.w > plat.x && entity.x < plat.x + plat.w) {
+      if (prevBottom <= plat.y + 10 && nextBottom >= plat.y && entity.x + entity.w > plat.x && entity.x < plat.x + plat.w) {
         entity.y = plat.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
         break;
       }
     }
     for (const dp of visibleDisappearing) {
-      if (prevBottom <= dp.y + 8 && nextBottom >= dp.y && entity.x + entity.w > dp.x && entity.x < dp.x + dp.w) {
+      if (prevBottom <= dp.y + 10 && nextBottom >= dp.y && entity.x + entity.w > dp.x && entity.x < dp.x + dp.w) {
         entity.y = dp.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
         break;
       }
@@ -3698,15 +3713,17 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
 
   for (const mp of (st.movingPlatforms || [])) {
     const mpPrevTop = mp.y - (mp.dy || 0);
-    if (!canDropPlatforms && entity.vy >= (mp.dy || 0) && prevBottom <= mpPrevTop + 10 && nextBottom >= mp.y && entity.x + entity.w > mp.x && entity.x < mp.x + mp.w) {
+    const mpPrevLeft = mp.x - (mp.dx || 0);
+    const mpPrevRight = mpPrevLeft + mp.w;
+    if (!canDropPlatforms && entity.vy >= (mp.dy || 0) && prevBottom <= mpPrevTop + 12 && nextBottom >= mp.y && entity.x + entity.w > mpPrevLeft - 4 && entity.x < mpPrevRight + 4) {
       entity.y = mp.y - entity.h;
       entity.x += (mp.dx || 0);
       entity.vy = 0;
       entity.jumps = maxJumps;
     } else if (entity.x + entity.w > mp.x && entity.x < mp.x + mp.w && entity.y + entity.h > mp.y && entity.y < mp.y + mp.h) {
-      if (prevX + entity.w <= mp.x + 10) {
+      if (prevX + entity.w <= mp.x + 12) {
         entity.x = mp.x - entity.w; entity.vx = 0;
-      } else if (prevX >= mp.x + mp.w - 10) {
+      } else if (prevX >= mp.x + mp.w - 12) {
         entity.x = mp.x + mp.w; entity.vx = 0;
       }
     }
@@ -3714,13 +3731,13 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
 
   for (const solid of (st.solids || [])) {
     if (entity.x + entity.w > solid.x && entity.x < solid.x + solid.w && entity.y + entity.h > solid.y && entity.y < solid.y + solid.h) {
-      if (entity.vy >= 0 && prevBottom <= solid.y + 10) {
+      if (entity.vy >= 0 && prevBottom <= solid.y + 12) {
         entity.y = solid.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
-      } else if (entity.vy < 0 && prevTop >= solid.y + solid.h - 10) {
+      } else if (entity.vy < 0 && prevTop >= solid.y + solid.h - 12) {
         entity.y = solid.y + solid.h; entity.vy = 0;
-      } else if (prevX + entity.w <= solid.x + 10) {
+      } else if (prevX + entity.w <= solid.x + 12) {
         entity.x = solid.x - entity.w; entity.vx = 0;
-      } else if (prevX >= solid.x + solid.w - 10) {
+      } else if (prevX >= solid.x + solid.w - 12) {
         entity.x = solid.x + solid.w; entity.vx = 0;
       }
     }
@@ -4162,48 +4179,55 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
   const target = findBotCombatTarget(bot);
   const mainPlayer = players[1];
 
-  if (target && bot.stun <= 0 && !bot.burnedOut) {
-    const dx = (target.x + target.w * 0.5) - (bot.x + bot.w * 0.5);
+  if (target && bot.stun <= 0 && !bot.burnedOut && !bot.frozen) {
+    const botCenterX = bot.x + bot.w * 0.5;
+    const botFootY = bot.y + bot.h;
+    const dx = (target.x + target.w * 0.5) - botCenterX;
     const dy = (target.y + target.h * 0.5) - (bot.y + bot.h * 0.5);
     const absDx = Math.abs(dx);
-    const ground = findSolidBeneath(bot.x + bot.w * 0.5, bot.y + bot.h);
-    const botCenterX = bot.x + bot.w * 0.5;
-    const isOffstage = botCenterX < ground.x + 14 || botCenterX > ground.x + ground.w - 14 || bot.y + bot.h > ground.y + 20;
+    const ground = findSolidBeneath(botCenterX, botFootY);
+    const onGround = Math.abs(botFootY - ground.y) <= 8;
+    const nearEdge = botCenterX < ground.x + 18 || botCenterX > ground.x + ground.w - 18;
+    const belowStage = botFootY > ground.y + 36;
 
-    if (isOffstage && lv >= 2) {
+    if (belowStage && lv >= 2) {
       const stageMidX = canvas.width * 0.5;
-      wantMoveDir = stageMidX >= botCenterX ? 0.65 : -0.65;
-      bot.facing = wantMoveDir >= 0 ? 1 : -1;
-      const jumpChance = 0.04 + lv * 0.012;
-      if (bot.jumps > 0 && bot.vy > -0.5 && (bot.y > ground.y - 25 || Math.random() < jumpChance * dtScale)) {
+      const recoveryDir = stageMidX >= botCenterX ? 1 : -1;
+      bot.facing = recoveryDir;
+      wantMoveDir = recoveryDir * (0.45 + lv * 0.055);
+      if (bot.jumps > 0 && bot.vy > -1.0) {
         bot.vy = spec.jumpPower;
         bot.jumps--;
       }
     } else if (lv === 1) {
       bot.facing = dx >= 0 ? 1 : -1;
-      if (absDx < 50 && Math.abs(dy) < 35 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.01 * dtScale) {
+      if (absDx < 52 && Math.abs(dy) < 36 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.015 * dtScale) {
         executeAttackForEntity(bot, false, 0);
       }
     } else {
-      const speedFactor = 0.22 + (lv - 1) * 0.048;
-      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 235 : 50;
+      const moveIntensity = 0.42 + (lv - 1) * 0.065;
+      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 220 : 48;
 
       if (!bot.smashCharging) {
         bot.facing = dx >= 0 ? 1 : -1;
         if (absDx > desiredRange) {
-          wantMoveDir = bot.facing * speedFactor;
+          if (onGround && nearEdge && Math.sign(dx) !== (botCenterX < ground.x + ground.w * 0.5 ? 1 : -1)) {
+            wantMoveDir = 0;
+          } else {
+            wantMoveDir = bot.facing * moveIntensity;
+          }
         }
       }
 
-      if (dy < -80 && absDx < 140 && bot.jumps > 0 && bot.vy >= -1 && Math.random() < (0.008 + lv * 0.004) * dtScale) {
+      if (dy < -75 && absDx < 150 && bot.jumps > 0 && bot.vy >= -1.5 && Math.random() < (0.012 + lv * 0.005) * dtScale) {
         bot.vy = spec.jumpPower;
         bot.jumps--;
-      } else if (dy > 70 && absDx < 130 && lv >= 4 && Math.random() < 0.025 * dtScale) {
+      } else if (dy > 75 && absDx < 130 && onGround && lv >= 4 && Math.random() < 0.025 * dtScale) {
         wantDropThrough = true;
       }
 
-      if (lv >= 6 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 45 && mainPlayer && mainPlayer.atkTimer > 0 && absDx < 82 && Math.abs(dy) < 48) {
-        const shieldChance = (lv - 5) * 0.055;
+      if (lv >= 6 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 45 && mainPlayer && mainPlayer.atkTimer > 0 && absDx < 85 && Math.abs(dy) < 48) {
+        const shieldChance = (lv - 5) * 0.06;
         if (Math.random() < shieldChance) {
           wantShield = true;
         }
@@ -4211,12 +4235,12 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
 
       if (!wantShield && bot.cooldown <= 0 && bot.atkTimer <= 0) {
         if (bot.charKey === "enhancer" && lv >= 5 && bot.enhanceLevel < ENHANCE_MAX_LEVEL && nowMs >= bot.enhanceCooldownUntil) {
-          if (Math.random() < (0.01 + lv * 0.006) * dtScale) {
+          if (Math.random() < (0.012 + lv * 0.006) * dtScale) {
             tryEnhanceSelfForEntity(bot);
           }
         }
         if (bot.charKey === "summoner" && lv >= 5 && !(clones[2] && clones[2].active) && nowMs >= bot.summonCooldownUntil) {
-          if (Math.random() < (0.01 + lv * 0.006) * dtScale) {
+          if (Math.random() < (0.012 + lv * 0.006) * dtScale) {
             trySummonCloneForRole(2);
           }
         }
@@ -4227,24 +4251,24 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
             bot.magicMode = (mainPlayer && !mainPlayer.frozen && lv >= 7 && Math.random() < 0.35) ? "ice" : "fire";
           }
           if ((bot.magicMode === "heal" || (absDx < 245 && Math.abs(dy) < 40) || (bot.magicMode === "magic" && absDx < 185)) &&
-              Math.random() < (0.01 + lv * 0.006) * dtScale) {
+              Math.random() < (0.012 + lv * 0.006) * dtScale) {
             castSelectedElementMagic(bot);
           }
         }
 
         if (bot.smashCharging) {
           const heldMs = Date.now() - bot.smashChargeStart;
-          const releaseWindow = absDx < 70 && Math.abs(dy) < 42;
-          const maxHoldMs = lv >= 8 ? 700 : 1050;
+          const releaseWindow = absDx < 75 && Math.abs(dy) < 44;
+          const maxHoldMs = lv >= 8 ? 650 : 950;
           if (releaseWindow || heldMs >= maxHoldMs) {
             bot.smashCharging = false;
             executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 0.75));
           }
         } else {
           const botHammerCrit = bot.charKey === "hammer" && isHammerCritState(bot, nowMs);
-          if (botHammerCrit && absDx < 82 && Math.abs(dy) < 46 && lv >= 3 && Math.random() < (0.04 + lv * 0.012) * dtScale) {
+          if (botHammerCrit && absDx < 85 && Math.abs(dy) < 48 && lv >= 3 && Math.random() < (0.05 + lv * 0.012) * dtScale) {
             executeAttackForEntity(bot, true, 0.15);
-          } else if (lv >= 5 && absDx < 66 && Math.abs(dy) < 40 && Math.random() < (lv - 4) * 0.011 * dtScale) {
+          } else if (lv >= 5 && absDx < 68 && Math.abs(dy) < 42 && Math.random() < (lv - 4) * 0.012 * dtScale) {
             if (lv >= 8 && Math.random() < 0.25) {
               bot.smashCharging = true;
               bot.smashChargeStart = Date.now();
@@ -4252,9 +4276,9 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
               executeAttackForEntity(bot, true, 0.1);
             }
           } else {
-            const lightRangeX = bot.charKey === "mage" ? 360 : 52;
-            const lightRangeY = bot.charKey === "mage" ? 26 : 38;
-            const attackRate = 0.014 + lv * 0.0095;
+            const lightRangeX = bot.charKey === "mage" ? 350 : 54;
+            const lightRangeY = bot.charKey === "mage" ? 28 : 40;
+            const attackRate = 0.02 + lv * 0.011;
             if (absDx <= lightRangeX && Math.abs(dy) <= lightRangeY && Math.random() < attackRate * dtScale) {
               executeAttackForEntity(bot, false, 0);
             }
