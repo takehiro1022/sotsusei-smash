@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（魔法L速度調整版）</title>
+<title>スマブラ風マルチ対戦（ギミック全部入り版）</title>
 <style>
   body {
     margin: 0;
@@ -120,7 +120,7 @@
   }
   #passphrase-input { width: 150px; }
   #inline-name-input { width: 130px; }
-  #stage-select, #practice-stage-select { min-width: 165px; }
+  #stage-select, #practice-stage-select { min-width: 185px; }
   #char-select-dropdown, #practice-bot-char-select { min-width: 185px; }
   #practice-bot-level-select { min-width: 135px; }
   .btn {
@@ -454,6 +454,15 @@ const COLOR_PALETTE = [
 ];
 const ALLOWED_COLORS = COLOR_PALETTE.map(c => c.hex.toLowerCase());
 
+/*
+  ギミック種別:
+  - movingPlatforms: { x, y, w, h, baseX, baseY, moveX, moveY, speed, phase }
+  - springs: { x, y, w, h, bounceVy }
+  - warps: { id, pairId, x, y, w, h, color }
+  - hazardZones: { x, y, w, h, dmg, kbX, kbY, label }
+  - iceFloors: { x, y, w, h }
+  - disappearingPlatforms: { x, y, w, h, visibleFrames, hiddenFrames, phaseOffset }
+*/
 const STAGES = {
   battlefield: {
     name: "スタンダード",
@@ -613,6 +622,106 @@ const STAGES = {
       2: { x: 875, y: 180, facing: -1 },
       3: { x: 470, y: 110, facing: 1 },
       4: { x: 580, y: 110, facing: -1 }
+    }
+  },
+  factory: {
+    name: "⚙️ からくり工場(リフト/バネ/消滅)",
+    bgColor: "#222633",
+    groundColor: "#94a3b8",
+    groundBorder: "#e2e8f0",
+    platColor: "#64748b",
+    solids: [
+      { x: 150, y: 405, w: 260, h: 32 },
+      { x: 670, y: 405, w: 260, h: 32 }
+    ],
+    platforms: [],
+    movingPlatforms: [
+      { x: 440, y: 330, w: 200, h: 15, baseX: 440, baseY: 330, moveX: 0, moveY: -120, speed: 0.025, phase: 0, dx: 0, dy: 0 },
+      { x: 220, y: 215, w: 150, h: 14, baseX: 220, baseY: 215, moveX: 110, moveY: 0, speed: 0.022, phase: 1.2, dx: 0, dy: 0 },
+      { x: 710, y: 215, w: 150, h: 14, baseX: 710, baseY: 215, moveX: -110, moveY: 0, speed: 0.022, phase: 1.2, dx: 0, dy: 0 }
+    ],
+    springs: [
+      { x: 255, y: 387, w: 54, h: 18, bounceVy: -17.5 },
+      { x: 771, y: 387, w: 54, h: 18, bounceVy: -17.5 }
+    ],
+    disappearingPlatforms: [
+      { x: 350, y: 275, w: 120, h: 14, visibleFrames: 180, hiddenFrames: 120, phaseOffset: 0, visible: true },
+      { x: 610, y: 275, w: 120, h: 14, visibleFrames: 180, hiddenFrames: 120, phaseOffset: 150, visible: true }
+    ],
+    spawns: {
+      1: { x: 210, y: 240, facing: 1 },
+      2: { x: 830, y: 240, facing: -1 },
+      3: { x: 360, y: 120, facing: 1 },
+      4: { x: 680, y: 120, facing: -1 }
+    }
+  },
+  warp_dim: {
+    name: "🌀 異次元ワープ空間(ワープ/リフト/消滅)",
+    bgColor: "#1a142e",
+    groundColor: "#a855f7",
+    groundBorder: "#e9d5ff",
+    platColor: "#7e22ce",
+    solids: [
+      { x: 130, y: 395, w: 240, h: 34 },
+      { x: 420, y: 410, w: 240, h: 30 },
+      { x: 710, y: 395, w: 240, h: 34 }
+    ],
+    platforms: [
+      { x: 440, y: 220, w: 200, h: 14 }
+    ],
+    movingPlatforms: [
+      { x: 250, y: 295, w: 150, h: 14, baseX: 250, baseY: 295, moveX: 0, moveY: -95, speed: 0.03, phase: 0, dx: 0, dy: 0 },
+      { x: 680, y: 295, w: 150, h: 14, baseX: 680, baseY: 295, moveX: 0, moveY: -95, speed: 0.03, phase: Math.PI, dx: 0, dy: 0 }
+    ],
+    warps: [
+      { id: "L_TOP", pairId: "R_BOT", x: 155, y: 155, w: 38, h: 52, color: "#38bdf8" },
+      { id: "R_BOT", pairId: "L_TOP", x: 885, y: 343, w: 38, h: 52, color: "#38bdf8" },
+      { id: "R_TOP", pairId: "L_BOT", x: 885, y: 155, w: 38, h: 52, color: "#f472b6" },
+      { id: "L_BOT", pairId: "R_TOP", x: 155, y: 343, w: 38, h: 52, color: "#f472b6" }
+    ],
+    disappearingPlatforms: [
+      { x: 140, y: 215, w: 110, h: 14, visibleFrames: 160, hiddenFrames: 110, phaseOffset: 0, visible: true },
+      { x: 830, y: 215, w: 110, h: 14, visibleFrames: 160, hiddenFrames: 110, phaseOffset: 135, visible: true }
+    ],
+    spawns: {
+      1: { x: 200, y: 240, facing: 1 },
+      2: { x: 840, y: 240, facing: -1 },
+      3: { x: 470, y: 120, facing: 1 },
+      4: { x: 580, y: 120, facing: -1 }
+    }
+  },
+  magma_glacier: {
+    name: "🔥❄️ 溶岩＆氷河アリーナ(溶岩/氷/バネ)",
+    bgColor: "#1f2430",
+    groundColor: "#64748b",
+    groundBorder: "#cbd5e1",
+    platColor: "#475569",
+    solids: [
+      { x: 120, y: 395, w: 250, h: 36 },
+      { x: 370, y: 405, w: 340, h: 28 },
+      { x: 710, y: 395, w: 250, h: 36 }
+    ],
+    platforms: [
+      { x: 170, y: 275, w: 180, h: 14 },
+      { x: 450, y: 225, w: 180, h: 14 },
+      { x: 730, y: 275, w: 180, h: 14 }
+    ],
+    iceFloors: [
+      { x: 122, y: 389, w: 246, h: 8 },
+      { x: 712, y: 389, w: 246, h: 8 }
+    ],
+    hazardZones: [
+      { x: 372, y: 395, w: 336, h: 12, dmg: 6, kbX: 6.5, kbY: -12.5, label: "🔥 溶岩" }
+    ],
+    springs: [
+      { x: 395, y: 377, w: 48, h: 18, bounceVy: -16.8 },
+      { x: 637, y: 377, w: 48, h: 18, bounceVy: -16.8 }
+    ],
+    spawns: {
+      1: { x: 200, y: 220, facing: 1 },
+      2: { x: 840, y: 220, facing: -1 },
+      3: { x: 470, y: 120, facing: 1 },
+      4: { x: 580, y: 120, facing: -1 }
     }
   }
 };
@@ -876,6 +985,7 @@ let lastFrameTime = performance.now();
 let lastStateSentAt = 0;
 let matchStartedAt = 0;
 let gameOverSent = false;
+let gimmickFrameCounter = 0;
 
 let projectiles = [];
 let beams = [];
@@ -883,6 +993,61 @@ let ringEffects = [];
 let burnDebuffs = [];
 let clones = {};
 let chatMessages = [];
+
+function initStageGimmicks(stage) {
+  if (!stage) return;
+  if (Array.isArray(stage.movingPlatforms)) {
+    stage.movingPlatforms.forEach(mp => {
+      mp.baseX = typeof mp.baseX === "number" ? mp.baseX : mp.x;
+      mp.baseY = typeof mp.baseY === "number" ? mp.baseY : mp.y;
+      mp.t = mp.phase || 0;
+      mp.dx = 0;
+      mp.dy = 0;
+    });
+  }
+  if (Array.isArray(stage.disappearingPlatforms)) {
+    stage.disappearingPlatforms.forEach(dp => {
+      dp.visible = true;
+    });
+  }
+}
+
+function getVisibleDisappearingPlatforms(stage) {
+  if (!stage || !Array.isArray(stage.disappearingPlatforms)) return [];
+  return stage.disappearingPlatforms.filter(dp => dp.visible !== false);
+}
+
+function updateStageGimmicks(dtScale) {
+  const st = getCurrentStage();
+  if (!st) return;
+  initStageGimmicks(st);
+  gimmickFrameCounter += dtScale;
+
+  if (Array.isArray(st.movingPlatforms)) {
+    st.movingPlatforms.forEach(mp => {
+      const prevX = mp.x;
+      const prevY = mp.y;
+      mp.t = (mp.t || 0) + (mp.speed || 0.025) * dtScale;
+      const wave = Math.sin(mp.t);
+      const nextX = mp.baseX + (mp.moveX || 0) * wave;
+      const nextY = mp.baseY + (mp.moveY || 0) * wave;
+      mp.dx = nextX - prevX;
+      mp.dy = nextY - prevY;
+      mp.x = nextX;
+      mp.y = nextY;
+    });
+  }
+
+  if (Array.isArray(st.disappearingPlatforms)) {
+    st.disappearingPlatforms.forEach(dp => {
+      const vis = dp.visibleFrames || 180;
+      const hid = dp.hiddenFrames || 120;
+      const cycle = vis + hid;
+      const pos = ((gimmickFrameCounter + (dp.phaseOffset || 0)) % cycle + cycle) % cycle;
+      dp.visible = pos < vis;
+    });
+  }
+}
 
 function ensureHammerCritState(entity, nowMs = performance.now()) {
   if (!entity || entity.charKey !== "hammer") return;
@@ -1028,7 +1193,12 @@ function segmentIntersectsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
 
 function getAllStageObstacles() {
   const st = getCurrentStage();
-  return [...(st.solids || []), ...(st.platforms || [])];
+  return [
+    ...(st.solids || []),
+    ...(st.platforms || []),
+    ...(st.movingPlatforms || []),
+    ...getVisibleDisappearingPlatforms(st)
+  ];
 }
 
 function isBlockedByStageSegment(x1, y1, x2, y2) {
@@ -1229,6 +1399,9 @@ function makePlayer(roleNum, charKey) {
     facing: sp.facing,
     jumps: spec.maxJumps || 2,
     dropThroughTimer: 0,
+    warpCooldownFrames: 0,
+    hazardCooldownFrames: 0,
+    onIce: false,
     percent: 0,
     stocks: MAX_STOCK,
     atkType: null,
@@ -1489,10 +1662,15 @@ function getSpawnPoint(roleNum) {
 
 function findSolidBeneath(cx, footY) {
   const st = getCurrentStage();
-  for (const s of st.solids) {
+  const candidates = [
+    ...(st.solids || []),
+    ...(st.movingPlatforms || []),
+    ...getVisibleDisappearingPlatforms(st)
+  ];
+  for (const s of candidates) {
     if (cx >= s.x - 10 && cx <= s.x + s.w + 10 && footY <= s.y + 40) return s;
   }
-  return st.solids[0];
+  return (st.solids && st.solids[0]) || { x: 170, y: 390, w: 740, h: 36 };
 }
 
 function getTeamOfRole(role) {
@@ -1512,10 +1690,11 @@ function getMaxJumpsForPlayer(p) {
 }
 
 function getEffectiveMoveAcc(p, spec) {
+  const iceMult = p.onIce ? 0.42 : 1.0;
   if (p.charKey === "enhancer") {
-    return spec.moveAcc * (1 + (p.enhanceLevel || 0) * 0.14);
+    return spec.moveAcc * (1 + (p.enhanceLevel || 0) * 0.14) * iceMult;
   }
-  return spec.moveAcc;
+  return spec.moveAcc * iceMult;
 }
 
 function getEffectiveLightStats(p, spec) {
@@ -1555,6 +1734,9 @@ function resetSinglePlayer(p, roleNum) {
   p.percent = 0; p.stocks = MAX_STOCK; p.stun = 0;
   p.jumps = spec.maxJumps || 2; p.facing = sp.facing;
   p.dropThroughTimer = 0;
+  p.warpCooldownFrames = 0;
+  p.hazardCooldownFrames = 0;
+  p.onIce = false;
   p.atkType = null; p.atkTimer = 0; p.cooldown = 0; p.hasHit = false;
   p.smashCharging = false; p.smashChargeStart = 0; p.smashChargeRatio = 0;
   p.enhanceLevel = 0; p.enhanceCooldownUntil = 0;
@@ -1598,6 +1780,8 @@ function syncActivePlayersFromRoles() {
 }
 
 function resetPlayersForNewMatch() {
+  gimmickFrameCounter = 0;
+  initStageGimmicks(getCurrentStage());
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) resetSinglePlayer(players[r], r);
   projectiles = [];
   beams = [];
@@ -2250,6 +2434,8 @@ function setStage(newStageKey, broadcastChange = true) {
   if (!isPracticeMode && broadcastChange && !isHost()) return;
   currentStageKey = newStageKey;
   stageSelectEl.value = currentStageKey;
+  gimmickFrameCounter = 0;
+  initStageGimmicks(STAGES[currentStageKey]);
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
     const sp = getSpawnPoint(r);
     players[r].x = sp.x;
@@ -3442,21 +3628,45 @@ function sendMyState(me, force = false) {
   }));
 }
 
-function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms) {
+function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms, dtScale = 1) {
   const st = getCurrentStage();
   const prevBottom = prevY + entity.h;
   const prevTop = prevY;
   const nextBottom = entity.y + entity.h;
+  const visibleDisappearing = getVisibleDisappearingPlatforms(st);
 
   if (!canDropPlatforms && entity.vy >= 0) {
-    for (const plat of st.platforms) {
+    for (const plat of (st.platforms || [])) {
       if (prevBottom <= plat.y + 8 && nextBottom >= plat.y && entity.x + entity.w > plat.x && entity.x < plat.x + plat.w) {
         entity.y = plat.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
         break;
       }
     }
+    for (const dp of visibleDisappearing) {
+      if (prevBottom <= dp.y + 8 && nextBottom >= dp.y && entity.x + entity.w > dp.x && entity.x < dp.x + dp.w) {
+        entity.y = dp.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
+        break;
+      }
+    }
   }
-  for (const solid of st.solids) {
+
+  for (const mp of (st.movingPlatforms || [])) {
+    const mpPrevTop = mp.y - (mp.dy || 0);
+    if (!canDropPlatforms && entity.vy >= (mp.dy || 0) && prevBottom <= mpPrevTop + 10 && nextBottom >= mp.y && entity.x + entity.w > mp.x && entity.x < mp.x + mp.w) {
+      entity.y = mp.y - entity.h;
+      entity.x += (mp.dx || 0);
+      entity.vy = 0;
+      entity.jumps = maxJumps;
+    } else if (entity.x + entity.w > mp.x && entity.x < mp.x + mp.w && entity.y + entity.h > mp.y && entity.y < mp.y + mp.h) {
+      if (prevX + entity.w <= mp.x + 10) {
+        entity.x = mp.x - entity.w; entity.vx = 0;
+      } else if (prevX >= mp.x + mp.w - 10) {
+        entity.x = mp.x + mp.w; entity.vx = 0;
+      }
+    }
+  }
+
+  for (const solid of (st.solids || [])) {
     if (entity.x + entity.w > solid.x && entity.x < solid.x + solid.w && entity.y + entity.h > solid.y && entity.y < solid.y + solid.h) {
       if (entity.vy >= 0 && prevBottom <= solid.y + 10) {
         entity.y = solid.y - entity.h; entity.vy = 0; entity.jumps = maxJumps;
@@ -3466,6 +3676,61 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
         entity.x = solid.x - entity.w; entity.vx = 0;
       } else if (prevX >= solid.x + solid.w - 10) {
         entity.x = solid.x + solid.w; entity.vx = 0;
+      }
+    }
+  }
+
+  if (typeof entity.warpCooldownFrames === "number" && entity.warpCooldownFrames > 0) {
+    entity.warpCooldownFrames = Math.max(0, entity.warpCooldownFrames - dtScale);
+  }
+  if (typeof entity.hazardCooldownFrames === "number" && entity.hazardCooldownFrames > 0) {
+    entity.hazardCooldownFrames = Math.max(0, entity.hazardCooldownFrames - dtScale);
+  }
+
+  entity.onIce = false;
+  if (Array.isArray(st.iceFloors)) {
+    for (const ice of st.iceFloors) {
+      if (entity.x + entity.w > ice.x && entity.x < ice.x + ice.w && Math.abs((entity.y + entity.h) - ice.y) <= 6) {
+        entity.onIce = true;
+        break;
+      }
+    }
+  }
+
+  if (Array.isArray(st.springs)) {
+    for (const sp of st.springs) {
+      if (entity.x + entity.w > sp.x && entity.x < sp.x + sp.w && entity.y + entity.h >= sp.y && prevY + entity.h <= sp.y + sp.h + 10 && entity.vy >= 0) {
+        entity.y = sp.y - entity.h;
+        entity.vy = sp.bounceVy || -17;
+        entity.jumps = maxJumps;
+      }
+    }
+  }
+
+  if (Array.isArray(st.warps) && (!entity.warpCooldownFrames || entity.warpCooldownFrames <= 0)) {
+    for (const wp of st.warps) {
+      if (rectsOverlap(entity, wp)) {
+        const dest = st.warps.find(other => other.id === wp.pairId) || st.warps.find(other => other !== wp);
+        if (dest) {
+          entity.x = dest.x + dest.w * 0.5 - entity.w * 0.5;
+          entity.y = dest.y + dest.h - entity.h - 2;
+          entity.vy = Math.min(entity.vy, -2);
+          entity.warpCooldownFrames = 36;
+          break;
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(st.hazardZones) && (!entity.hazardCooldownFrames || entity.hazardCooldownFrames <= 0) && (entity.invincibleTimer || 0) <= 0) {
+    for (const hz of st.hazardZones) {
+      if (rectsOverlap(entity, hz)) {
+        entity.percent += (hz.dmg || 6);
+        entity.vx = (entity.x + entity.w * 0.5 < hz.x + hz.w * 0.5 ? -1 : 1) * (hz.kbX || 6);
+        entity.vy = hz.kbY || -12;
+        entity.stun = Math.max(entity.stun || 0, 16);
+        entity.hazardCooldownFrames = 35;
+        break;
       }
     }
   }
@@ -3533,7 +3798,7 @@ function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
   cl.vy += 0.56 * dtScale;
   const prevX = cl.x, prevY = cl.y;
   cl.x += cl.vx * dtScale; cl.y += cl.vy * dtScale;
-  resolveStageCollisions(cl, prevX, prevY, spec.maxJumps || 2, false);
+  resolveStageCollisions(cl, prevX, prevY, spec.maxJumps || 2, false, dtScale);
 
   if (cl.atkTimer > 0) { cl.atkTimer = Math.max(0, cl.atkTimer - dtScale); if (cl.atkTimer === 0) cl.hasHit = false; }
   if (cl.cooldown > 0) cl.cooldown = Math.max(0, cl.cooldown - dtScale);
@@ -3785,6 +4050,7 @@ function handleEntityRingOut(actor) {
   actor.percent = 0; actor.vx = 0; actor.vy = 0; actor.stun = 0; actor.frozen = false;
   actor.jumps = maxJumps; actor.shielding = false; actor.burnedOut = false; actor.shieldHp = MAX_SHIELD;
   actor.smashCharging = false; actor.hasHit = false; actor.enhanceLevel = 0; actor.enhanceCooldownUntil = 0;
+  actor.warpCooldownFrames = 0; actor.hazardCooldownFrames = 0; actor.onIce = false;
   resetHammerCritAndCharge(actor);
   actor.guardianHits = 0;
   if (clones[actor.role]) {
@@ -3972,14 +4238,15 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
     bot.dropThroughTimer = 8;
   }
 
-  bot.vx *= bot.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(spec.friction, dtScale);
+  const botFriction = bot.onIce ? 0.965 : spec.friction;
+  bot.vx *= bot.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(botFriction, dtScale);
   bot.vy += 0.56 * dtScale;
 
   const prevX = bot.x, prevY = bot.y;
   bot.x += bot.vx * dtScale;
   bot.y += bot.vy * dtScale;
   if (bot.dropThroughTimer > 0) bot.dropThroughTimer = Math.max(0, bot.dropThroughTimer - dtScale);
-  resolveStageCollisions(bot, prevX, prevY, maxJumps, bot.dropThroughTimer > 0);
+  resolveStageCollisions(bot, prevX, prevY, maxJumps, bot.dropThroughTimer > 0, dtScale);
 
   if (bot.atkTimer > 0) {
     bot.atkTimer = Math.max(0, bot.atkTimer - dtScale);
@@ -4034,13 +4301,14 @@ function updateMyPlayer(dtScale, nowMs = performance.now()) {
   if (canMove && down["KeyD"]) { me.vx += acc * dtScale; me.facing = 1; }
   if (canMove && down["KeyS"] && me.dropThroughTimer <= 0) me.dropThroughTimer = 8;
 
-  me.vx *= me.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(spec.friction, dtScale);
+  const myFriction = me.onIce ? 0.965 : spec.friction;
+  me.vx *= me.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(myFriction, dtScale);
   me.vy += 0.56 * dtScale;
 
   const prevX = me.x, prevY = me.y;
   me.x += me.vx * dtScale; me.y += me.vy * dtScale;
   if (me.dropThroughTimer > 0) me.dropThroughTimer = Math.max(0, me.dropThroughTimer - dtScale);
-  resolveStageCollisions(me, prevX, prevY, maxJumps, (canMove && down["KeyS"]) || me.dropThroughTimer > 0);
+  resolveStageCollisions(me, prevX, prevY, maxJumps, (canMove && down["KeyS"]) || me.dropThroughTimer > 0, dtScale);
 
   if (me.atkTimer > 0) {
     me.atkTimer = Math.max(0, me.atkTimer - dtScale);
@@ -4132,6 +4400,7 @@ function loop(now) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   if (!(isPracticeMode && isPracticeStopped)) {
+    updateStageGimmicks(dtScale);
     updateMyPlayer(dtScale, now);
     updatePracticeBot(dtScale, now);
     updateMyClone(dtScale, now);
@@ -4141,7 +4410,7 @@ function loop(now) {
     updateProjectiles(dtScale);
   }
 
-  for (const solid of st.solids) {
+  for (const solid of (st.solids || [])) {
     ctx.fillStyle = st.groundColor;
     ctx.fillRect(solid.x, solid.y, solid.w, solid.h);
     ctx.strokeStyle = st.groundBorder;
@@ -4149,13 +4418,102 @@ function loop(now) {
     ctx.strokeRect(solid.x, solid.y, solid.w, solid.h);
   }
 
-  for (const plat of st.platforms) {
+  if (Array.isArray(st.iceFloors)) {
+    for (const ice of st.iceFloors) {
+      ctx.fillStyle = "rgba(125, 211, 252, 0.85)";
+      ctx.fillRect(ice.x, ice.y, ice.w, ice.h);
+      ctx.strokeStyle = "#e0f2fe";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(ice.x, ice.y, ice.w, ice.h);
+    }
+  }
+
+  if (Array.isArray(st.hazardZones)) {
+    for (const hz of st.hazardZones) {
+      const pulse = 0.75 + 0.25 * Math.sin(now * 0.01);
+      ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;
+      ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
+      ctx.fillStyle = "#fde047";
+      ctx.fillRect(hz.x, hz.y, hz.w, 3);
+      if (hz.label) {
+        ctx.font = "bold 11px sans-serif";
+        ctx.fillStyle = "#fef08a";
+        ctx.textAlign = "center";
+        ctx.fillText(hz.label, hz.x + hz.w * 0.5, hz.y + hz.h + 13);
+        ctx.textAlign = "left";
+      }
+    }
+  }
+
+  for (const plat of (st.platforms || [])) {
     ctx.fillStyle = st.platColor;
     ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
     ctx.setLineDash([6, 4]);
     ctx.strokeStyle = "#e2e8f0";
     ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
     ctx.setLineDash([]);
+  }
+
+  if (Array.isArray(st.movingPlatforms)) {
+    for (const mp of st.movingPlatforms) {
+      ctx.fillStyle = "#475569";
+      ctx.fillRect(mp.x, mp.y, mp.w, mp.h);
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(mp.x, mp.y, mp.w, mp.h);
+      ctx.fillStyle = "#bae6fd";
+      ctx.fillRect(mp.x + 6, mp.y + 4, mp.w - 12, 3);
+    }
+  }
+
+  if (Array.isArray(st.disappearingPlatforms)) {
+    for (const dp of st.disappearingPlatforms) {
+      if (dp.visible !== false) {
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(dp.x, dp.y, dp.w, dp.h);
+        ctx.strokeStyle = "#fef08a";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
+      } else {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "rgba(251, 191, 36, 0.35)";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
+        ctx.restore();
+      }
+    }
+  }
+
+  if (Array.isArray(st.springs)) {
+    for (const sp of st.springs) {
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(sp.x, sp.y, sp.w, sp.h);
+      ctx.fillStyle = "#fde047";
+      ctx.fillRect(sp.x - 2, sp.y, sp.w + 4, 5);
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillStyle = "#fef08a";
+      ctx.textAlign = "center";
+      ctx.fillText("▲", sp.x + sp.w * 0.5, sp.y - 3);
+      ctx.textAlign = "left";
+    }
+  }
+
+  if (Array.isArray(st.warps)) {
+    for (const wp of st.warps) {
+      ctx.save();
+      ctx.strokeStyle = wp.color || "#38bdf8";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(wp.x, wp.y, wp.w, wp.h);
+      ctx.fillStyle = (wp.color || "#38bdf8") + "33";
+      ctx.fillRect(wp.x, wp.y, wp.w, wp.h);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.fillText("🌀", wp.x + wp.w * 0.5, wp.y - 5);
+      ctx.textAlign = "left";
+      ctx.restore();
+    }
   }
 
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
