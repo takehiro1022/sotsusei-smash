@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（ロビー練習場・CPU Lv.1～10対応版）</title>
+<title>スマブラ風マルチ対戦（練習場ステップ進行・ストップ/スタート対応版）</title>
 <style>
   body {
     margin: 0;
@@ -121,7 +121,7 @@
   #passphrase-input { width: 150px; }
   #inline-name-input { width: 130px; }
   #stage-select, #practice-stage-select { min-width: 165px; }
-  #char-select-dropdown, #practice-my-char-select, #practice-bot-char-select { min-width: 185px; }
+  #char-select-dropdown, #practice-bot-char-select { min-width: 185px; }
   #practice-bot-level-select { min-width: 135px; }
   .btn {
     background: #2563eb;
@@ -338,14 +338,18 @@
   <span id="current-passphrase-badge">公開待機部屋（ロビー・最大30人）</span>
 </div>
 
-<div class="panel-row hidden" id="practice-panel-row">
-  <span>🤖 練習場（CPU戦）：</span>
-  <label>マップ <select id="practice-stage-select"></select></label>
-  <label>自分 <select id="practice-my-char-select"></select></label>
+<div class="panel-row hidden" id="practice-control-row">
+  <span>🤖 練習場コントロール：</span>
+  <button id="practice-stop-btn" class="btn ready-active" type="button">⏸ ストップ</button>
+  <button id="practice-start-resume-btn" class="btn success" type="button">▶ スタート</button>
+  <button id="practice-reset-btn" class="btn secondary" type="button">🔄 リセット</button>
+  <button id="practice-exit-btn" class="btn warn" type="button">🚪 ロビーへ戻る</button>
+</div>
+
+<div class="panel-row hidden" id="practice-bot-row">
+  <span>🎯 CPU設定：</span>
   <label>CPUキャラ <select id="practice-bot-char-select"></select></label>
   <label>CPUレベル <select id="practice-bot-level-select"></select></label>
-  <button id="practice-start-btn" class="btn success" type="button">⚔️ 対決開始 / リセット</button>
-  <button id="practice-exit-btn" class="btn warn" type="button">🚪 ロビーへ戻る</button>
 </div>
 
 <div class="panel-row hidden" id="color-row">
@@ -766,12 +770,13 @@ const gateEnterBtn = document.getElementById("gate-enter-btn");
 const inlineNameInput = document.getElementById("inline-name-input");
 const saveInlineNameBtn = document.getElementById("save-inline-name-btn");
 const roomProfileRow = document.getElementById("room-profile-row");
-const practicePanelRow = document.getElementById("practice-panel-row");
-const practiceStageSelect = document.getElementById("practice-stage-select");
-const practiceMyCharSelect = document.getElementById("practice-my-char-select");
+const practiceControlRow = document.getElementById("practice-control-row");
+const practiceBotRow = document.getElementById("practice-bot-row");
+const practiceStopBtn = document.getElementById("practice-stop-btn");
+const practiceStartResumeBtn = document.getElementById("practice-start-resume-btn");
+const practiceResetBtn = document.getElementById("practice-reset-btn");
 const practiceBotCharSelect = document.getElementById("practice-bot-char-select");
 const practiceBotLevelSelect = document.getElementById("practice-bot-level-select");
-const practiceStartBtn = document.getElementById("practice-start-btn");
 const practiceExitBtn = document.getElementById("practice-exit-btn");
 const openPracticeBtn = document.getElementById("open-practice-btn");
 const colorRow = document.getElementById("color-row");
@@ -836,9 +841,9 @@ passphraseInputEl.value = currentPassphrase;
 
 // 練習場モード管理
 let isPracticeMode = false;
+let isPracticeStopped = false;
 let practiceBotChar = "fighter";
 let practiceBotLevel = 5;
-let practiceBotThinkTimer = 0;
 
 function isPublicLobbyRoom() {
   return !isPracticeMode && !currentPassphrase;
@@ -945,12 +950,10 @@ function handleHammerIncomingHit(entity, wasSmash, wasLight, nowMs = performance
   const inCrit = isHammerCritState(entity, nowMs);
   const absMode = isHammerAbsoluteCritMode(entity, nowMs);
 
-  // 5秒間の絶対会心モード中は被弾しても会心維持＆蓄積変動なし
   if (inCrit && absMode) {
     return { changed: false, resetOccurred: false };
   }
 
-  // 会心状態だが5秒を超えている場合：相手スマッシュ1回 or L攻撃2回で会心解除＆蓄積0リセット
   if (inCrit && !absMode) {
     if (wasSmash) {
       resetHammerCritAndCharge(entity);
@@ -967,7 +970,6 @@ function handleHammerIncomingHit(entity, wasSmash, wasLight, nowMs = performance
     return { changed: false, resetOccurred: false };
   }
 
-  // 会心状態ではない場合：相手からスマッシュ+10 / L攻撃+5 蓄積
   let gain = 0;
   if (wasSmash) gain = HAMMER_HIT_SMASH_GAIN;
   else if (wasLight) gain = HAMMER_HIT_LIGHT_GAIN;
@@ -1176,23 +1178,15 @@ chatInputEl.addEventListener("keydown", e => {
 
 function initDropdownOptions() {
   stageSelectEl.innerHTML = "";
-  practiceStageSelect.innerHTML = "";
   Object.keys(STAGES).forEach(key => {
     const opt1 = document.createElement("option");
     opt1.value = key;
     opt1.textContent = STAGES[key].name;
     stageSelectEl.appendChild(opt1);
-
-    const opt2 = document.createElement("option");
-    opt2.value = key;
-    opt2.textContent = STAGES[key].name;
-    practiceStageSelect.appendChild(opt2);
   });
   stageSelectEl.value = currentStageKey;
-  practiceStageSelect.value = currentStageKey;
 
   charSelectDropdown.innerHTML = "";
-  practiceMyCharSelect.innerHTML = "";
   practiceBotCharSelect.innerHTML = "";
   CHAR_ORDER.forEach((key, idx) => {
     const opt1 = document.createElement("option");
@@ -1201,18 +1195,12 @@ function initDropdownOptions() {
     opt1.textContent = CHAR_SPECS[key].name;
     charSelectDropdown.appendChild(opt1);
 
-    const opt2 = document.createElement("option");
-    opt2.value = key;
-    opt2.textContent = CHAR_SPECS[key].name;
-    practiceMyCharSelect.appendChild(opt2);
-
     const opt3 = document.createElement("option");
     opt3.value = key;
     opt3.textContent = CHAR_SPECS[key].name;
     practiceBotCharSelect.appendChild(opt3);
   });
   charSelectDropdown.value = selectedChar;
-  practiceMyCharSelect.value = selectedChar;
   practiceBotCharSelect.value = practiceBotChar;
   charDescInline.textContent = `(${CHAR_SPECS[selectedChar].desc})`;
 
@@ -1445,16 +1433,19 @@ inlineNameInput.addEventListener("keydown", e => {
 
 function updatePassphraseUI() {
   if (isPracticeMode) {
-    currentPassphraseBadgeEl.textContent = `🤖 練習場（CPU Lv.${practiceBotLevel} 対決中）`;
-    practicePanelRow.classList.remove("hidden");
+    const stopTag = isPracticeStopped ? "・⏸ ストップ中" : "";
+    currentPassphraseBadgeEl.textContent = `🤖 練習場（CPU Lv.${practiceBotLevel}${stopTag}）`;
+    practiceControlRow.classList.remove("hidden");
+    practiceBotRow.classList.remove("hidden");
     colorRow.classList.add("hidden");
-    mapStepRow.classList.add("hidden");
-    charStepRow.classList.add("hidden");
+    mapStepRow.classList.remove("hidden");
+    charStepRow.classList.remove("hidden");
     updateChatVisibility();
     return;
   }
 
-  practicePanelRow.classList.add("hidden");
+  practiceControlRow.classList.add("hidden");
+  practiceBotRow.classList.add("hidden");
   currentPassphraseBadgeEl.textContent = currentPassphrase
     ? `合言葉「${currentPassphrase}」（最大4人）`
     : `公開待機部屋（ロビー・最大${MAX_LOBBY_PLAYERS}人）`;
@@ -1636,7 +1627,10 @@ function isRoleHost(r) {
 }
 
 function areAllPlayersReady() {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return false;
+  if (isPracticeMode) {
+    return readyRoles.has(1) && readyRoles.has(2);
+  }
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return false;
   const participants = getParticipantRoles();
   if (participants.length < 1) return false;
   return participants.every(r => readyRoles.has(r));
@@ -1648,9 +1642,9 @@ function syncReadyRolesToActive() {
 }
 
 // ==========================================
-// 練習場（CPU戦）開始・リセット・ロビー帰還
+// 練習場（ステップ進行・ストップ / スタート / リセット）
 // ==========================================
-function startPracticeMatch() {
+function enterPracticeModeSteps() {
   if (!hasEnteredLobby) {
     hasEnteredLobby = true;
     nameGateOverlay.classList.add("hidden");
@@ -1662,6 +1656,7 @@ function startPracticeMatch() {
   }
 
   isPracticeMode = true;
+  isPracticeStopped = false;
   isRoomFullBlocked = false;
   entryBlockedByHost = false;
   isSpectator = false;
@@ -1671,12 +1666,8 @@ function startPracticeMatch() {
   myRole = 1;
   activeRoles = [1, 2];
 
-  currentStageKey = practiceStageSelect.value || "battlefield";
-  selectedChar = practiceMyCharSelect.value || "fighter";
-  selectedIdx = Math.max(0, CHAR_ORDER.indexOf(selectedChar));
   practiceBotChar = practiceBotCharSelect.value || "fighter";
   practiceBotLevel = Math.max(1, Math.min(10, Number(practiceBotLevelSelect.value) || 5));
-  practiceBotThinkTimer = 0;
 
   players[1].charKey = selectedChar;
   players[1].name = sanitizePlayerName(myName, 1);
@@ -1689,8 +1680,7 @@ function startPracticeMatch() {
   resetPlayersForNewMatch();
   syncActivePlayersFromRoles();
 
-  phase = "playing";
-  matchStartedAt = performance.now();
+  phase = "map_select";
   clearChatMessages();
   updatePassphraseUI();
   updateLoopUI();
@@ -1698,33 +1688,108 @@ function startPracticeMatch() {
   updateStatusByPhase();
 }
 
+function resetPracticeMatchNow() {
+  if (!isPracticeMode) return;
+  clearTimers();
+  isPracticeStopped = false;
+  practiceBotChar = practiceBotCharSelect.value || "fighter";
+  practiceBotLevel = Math.max(1, Math.min(10, Number(practiceBotLevelSelect.value) || 5));
+  players[1].charKey = selectedChar;
+  players[1].name = sanitizePlayerName(myName, 1);
+  players[1].color = sanitizeColorHex(myColor, 1);
+  players[2].charKey = practiceBotChar;
+  players[2].name = `CPU (Lv.${practiceBotLevel})`;
+  players[2].color = "#38bdf8";
+
+  resetPlayersForNewMatch();
+  syncActivePlayersFromRoles();
+  phase = "playing";
+  matchStartedAt = performance.now();
+  updatePassphraseUI();
+  updateLoopUI();
+  updateRoomStatusBox();
+  updateStatusByPhase();
+}
+
+function stopPracticeBattle() {
+  if (!isPracticeMode || phase !== "playing" || isPracticeStopped) return;
+  isPracticeStopped = true;
+  for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
+    if (players[r]) players[r].smashCharging = false;
+  }
+  updatePassphraseUI();
+  updateLoopUI();
+  updateRoomStatusBox();
+  updateStatusByPhase();
+}
+
+function startOrResumePracticeBattle() {
+  if (!isPracticeMode) return;
+  if (phase === "playing" && isPracticeStopped) {
+    isPracticeStopped = false;
+    lastFrameTime = performance.now();
+    updatePassphraseUI();
+    updateLoopUI();
+    updateRoomStatusBox();
+    updateStatusByPhase();
+  } else if (phase === "map_select") {
+    enterCharSelectPhase(false);
+  } else if (phase === "char_select") {
+    readyRoles.add(1);
+    readyRoles.add(2);
+    checkAllReadyAndStartCountdown();
+  } else if (phase === "gameover") {
+    resetPracticeMatchNow();
+  }
+}
+
 function exitPracticeToLobby() {
   clearTimers();
   isPracticeMode = false;
+  isPracticeStopped = false;
   players[2].isBot = false;
   connectToPassphrase("", true);
 }
 
 openPracticeBtn.addEventListener("click", () => {
-  startPracticeMatch();
+  enterPracticeModeSteps();
 });
-practiceStartBtn.addEventListener("click", () => {
-  startPracticeMatch();
+practiceStopBtn.addEventListener("click", () => {
+  stopPracticeBattle();
+});
+practiceStartResumeBtn.addEventListener("click", () => {
+  startOrResumePracticeBattle();
+});
+practiceResetBtn.addEventListener("click", () => {
+  if (phase === "playing" || phase === "gameover") {
+    resetPracticeMatchNow();
+  } else {
+    enterPracticeModeSteps();
+  }
 });
 practiceExitBtn.addEventListener("click", () => {
   exitPracticeToLobby();
 });
-practiceStageSelect.addEventListener("change", () => {
-  if (isPracticeMode) startPracticeMatch();
-});
-practiceMyCharSelect.addEventListener("change", () => {
-  if (isPracticeMode) startPracticeMatch();
-});
 practiceBotCharSelect.addEventListener("change", () => {
-  if (isPracticeMode) startPracticeMatch();
+  practiceBotChar = practiceBotCharSelect.value || "fighter";
+  if (players[2]) {
+    players[2].charKey = practiceBotChar;
+    players[2].jumps = getMaxJumpsForPlayer(players[2]);
+    players[2].mp = MAX_MP;
+  }
+  if (isPracticeMode && (phase === "char_select" || phase === "countdown")) {
+    readyRoles.delete(1);
+    readyRoles.delete(2);
+    checkAllReadyAndStartCountdown();
+  }
+  updateRoomStatusBox();
 });
 practiceBotLevelSelect.addEventListener("change", () => {
-  if (isPracticeMode) startPracticeMatch();
+  practiceBotLevel = Math.max(1, Math.min(10, Number(practiceBotLevelSelect.value) || 5));
+  if (players[2]) players[2].name = `CPU (Lv.${practiceBotLevel})`;
+  updatePassphraseUI();
+  updateRoomStatusBox();
+  updateStatusByPhase();
 });
 
 function updateLoopUI() {
@@ -1732,18 +1797,54 @@ function updateLoopUI() {
   hostLockBtn.textContent = fixedHostThisPc ? "🔒 固定ホスト：ON" : "🔓 固定ホスト：OFF";
 
   if (isPracticeMode) {
-    practicePanelRow.classList.remove("hidden");
-    mapStepRow.classList.add("hidden");
-    charStepRow.classList.add("hidden");
+    practiceControlRow.classList.remove("hidden");
+    practiceBotRow.classList.remove("hidden");
+    mapStepRow.classList.remove("hidden");
+    charStepRow.classList.remove("hidden");
     colorRow.classList.add("hidden");
     roomProfileRow.classList.remove("disabled-area");
     inlineNameInput.disabled = false;
     saveInlineNameBtn.disabled = false;
+
+    const inBattle = (phase === "playing" || phase === "gameover");
+    practiceStopBtn.disabled = !(phase === "playing" && !isPracticeStopped);
+    practiceStartResumeBtn.disabled = (phase === "playing" && !isPracticeStopped) || phase === "countdown";
+
+    const canEditMap = !inBattle && phase === "map_select";
+    stageSelectEl.value = currentStageKey;
+    modeSelectEl.value = "ffa";
+    stageSelectEl.disabled = !canEditMap;
+    modeSelectEl.disabled = true;
+    confirmMapBtn.disabled = !canEditMap;
+    confirmMapBtn.textContent = phase === "map_select" ? "このマップでキャラ選択へ" : "マップ確定済";
+    hostLockBtn.disabled = true;
+    resetGhostBtn.disabled = true;
+
+    const inCharPhase = (phase === "char_select" || phase === "countdown");
+    const myReady = readyRoles.has(1);
+    charStepRow.classList.toggle("disabled-area", !inCharPhase);
+    charSelectDropdown.value = selectedChar;
+    charSelectDropdown.disabled = !inCharPhase || myReady;
+    practiceBotCharSelect.disabled = !inCharPhase || myReady;
+    practiceBotLevelSelect.disabled = false;
+    charDescInline.textContent = `(${CHAR_SPECS[selectedChar].desc})`;
+
+    readyToggleBtn.disabled = !inCharPhase;
+    readyToggleBtn.classList.toggle("ready-active", myReady);
+    readyToggleBtn.textContent = myReady ? "✋ 完了を取り消す" : "✅ 完了にする";
+    backToMapBtn.disabled = !inCharPhase;
+
+    const doneCount = [1, 2].filter(r => readyRoles.has(r)).length;
+    readySummaryEl.textContent = phase === "countdown"
+      ? `全員完了！ 開始まで ${countdownLeft} 秒`
+      : `完了：${doneCount}/2人`;
+
     updateChatVisibility();
     return;
   }
 
-  practicePanelRow.classList.add("hidden");
+  practiceControlRow.classList.add("hidden");
+  practiceBotRow.classList.add("hidden");
 
   if (isPublicLobbyRoom()) {
     mapStepRow.classList.add("hidden");
@@ -1804,7 +1905,14 @@ function updateLoopUI() {
 
 function updateRoomStatusBox() {
   if (isPracticeMode) {
-    roomStatusEl.textContent = `【🤖 練習場（CPU対決）】自分：${getDisplayNameOfRole(1)}（${CHAR_SPECS[players[1].charKey].shortName}） VS CPU：Lv.${practiceBotLevel}（${CHAR_SPECS[players[2].charKey].shortName}） ｜ マップ：${getCurrentStage().name}`;
+    const phaseLabelMap = {
+      map_select: "①マップ決定中",
+      char_select: "②キャラ選択・完了待ち",
+      countdown: `③開始カウント(${countdownLeft}秒)`,
+      playing: isPracticeStopped ? "④バトル中（⏸ ストップ中）" : "④バトル中",
+      gameover: "結果表示中"
+    };
+    roomStatusEl.textContent = `【🤖 練習場】自分：${getDisplayNameOfRole(1)}（${CHAR_SPECS[players[1].charKey].shortName}） VS CPU：Lv.${practiceBotLevel}（${CHAR_SPECS[players[2].charKey].shortName}） ｜ マップ：${getCurrentStage().name} ｜ 段階：${phaseLabelMap[phase] || phase}`;
     return;
   }
 
@@ -1848,8 +1956,15 @@ function updateStatusByPhase() {
   const cap = getRoomCapacity();
   const displayMyName = myName || "未設定";
   if (isPracticeMode) {
-    if (phase === "playing") {
-      statusEl.textContent = `🤖 [練習場] ${displayMyName}（${CHAR_SPECS[players[1].charKey].shortName}） vs CPU Lv.${practiceBotLevel}（${CHAR_SPECS[players[2].charKey].shortName}） ｜ マップ：${getCurrentStage().name}`;
+    if (phase === "map_select") {
+      statusEl.textContent = `🤖 [練習場] ${displayMyName} ｜ マップを選んで「このマップでキャラ選択へ」を押してください`;
+    } else if (phase === "char_select") {
+      statusEl.textContent = `🤖 [練習場] ${displayMyName} ｜ 自分・CPUキャラ・CPUレベルを選んで「✅ 完了にする」を押してください`;
+    } else if (phase === "countdown") {
+      statusEl.textContent = `🤖 [練習場] 全員完了！ 試合開始まであと ${countdownLeft} 秒（マップ：${getCurrentStage().name}）`;
+    } else if (phase === "playing") {
+      const stopText = isPracticeStopped ? "【⏸ ストップ中】" : "バトル中";
+      statusEl.textContent = `🤖 [練習場] ${stopText}（${getCurrentStage().name}）！ ${displayMyName}（${CHAR_SPECS[players[1].charKey].shortName}） vs CPU Lv.${practiceBotLevel}（${CHAR_SPECS[players[2].charKey].shortName}）`;
     }
     return;
   }
@@ -1899,7 +2014,18 @@ function sendLoopStateSync(extra = {}) {
 
 function enterMapSelectPhase(broadcast = false) {
   if (isPracticeMode) {
-    startPracticeMatch();
+    clearTimers();
+    isPracticeStopped = false;
+    phase = "map_select";
+    readyRoles.clear();
+    winnerInfo = null;
+    gameOverSent = false;
+    resetPlayersForNewMatch();
+    syncActivePlayersFromRoles();
+    updatePassphraseUI();
+    updateLoopUI();
+    updateRoomStatusBox();
+    updateStatusByPhase();
     return;
   }
   if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
@@ -1921,7 +2047,28 @@ function enterMapSelectPhase(broadcast = false) {
 }
 
 function enterCharSelectPhase(broadcast = false) {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode) {
+    clearTimers();
+    isPracticeStopped = false;
+    phase = "char_select";
+    readyRoles.clear();
+    winnerInfo = null;
+    gameOverSent = false;
+    resetPlayersForNewMatch();
+    syncActivePlayersFromRoles();
+    players[1].charKey = selectedChar;
+    players[1].jumps = getMaxJumpsForPlayer(players[1]);
+    players[1].mp = MAX_MP;
+    players[2].charKey = practiceBotChar;
+    players[2].jumps = getMaxJumpsForPlayer(players[2]);
+    players[2].mp = MAX_MP;
+    updatePassphraseUI();
+    updateLoopUI();
+    updateRoomStatusBox();
+    updateStatusByPhase();
+    return;
+  }
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   promoteSpectatorsToParticipants();
   phase = "char_select";
@@ -1946,7 +2093,33 @@ function enterCharSelectPhase(broadcast = false) {
 }
 
 function startTenSecondCountdown() {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode) {
+    if (phase === "countdown" || phase === "playing" || phase === "gameover") return;
+    clearTimers();
+    isPracticeStopped = false;
+    phase = "countdown";
+    countdownLeft = COUNTDOWN_SECONDS;
+    syncActivePlayersFromRoles();
+    updatePassphraseUI();
+    updateLoopUI();
+    updateRoomStatusBox();
+    updateStatusByPhase();
+
+    countdownTimerId = setInterval(() => {
+      countdownLeft--;
+      if (countdownLeft > 0) {
+        updateLoopUI();
+        updateRoomStatusBox();
+        updateStatusByPhase();
+      } else {
+        clearTimers();
+        startBattlePhase();
+      }
+    }, 1000);
+    return;
+  }
+
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   if (phase === "countdown" || phase === "playing" || phase === "gameover") return;
   clearTimers();
   promoteSpectatorsToParticipants();
@@ -1971,7 +2144,22 @@ function startTenSecondCountdown() {
 }
 
 function checkAllReadyAndStartCountdown() {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode) {
+    updateLoopUI();
+    updateRoomStatusBox();
+    if (phase === "char_select" && areAllPlayersReady()) {
+      startTenSecondCountdown();
+    } else if (phase === "countdown" && !areAllPlayersReady()) {
+      clearTimers();
+      phase = "char_select";
+      updateLoopUI();
+      updateRoomStatusBox();
+      updateStatusByPhase();
+    }
+    return;
+  }
+
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   syncReadyRolesToActive();
   updateLoopUI();
   updateRoomStatusBox();
@@ -1988,7 +2176,40 @@ function checkAllReadyAndStartCountdown() {
 }
 
 function startBattlePhase() {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode) {
+    clearTimers();
+    isPracticeStopped = false;
+    phase = "playing";
+    clearChatMessages();
+    matchStartedAt = performance.now();
+    winnerInfo = null;
+    gameOverSent = false;
+
+    practiceBotChar = practiceBotCharSelect.value || "fighter";
+    practiceBotLevel = Math.max(1, Math.min(10, Number(practiceBotLevelSelect.value) || 5));
+
+    resetPlayersForNewMatch();
+    syncActivePlayersFromRoles();
+    players[1].charKey = selectedChar;
+    players[1].jumps = getMaxJumpsForPlayer(players[1]);
+    players[1].mp = MAX_MP;
+    players[1].name = sanitizePlayerName(myName, 1);
+    players[1].color = sanitizeColorHex(myColor, 1);
+
+    players[2].charKey = practiceBotChar;
+    players[2].jumps = getMaxJumpsForPlayer(players[2]);
+    players[2].mp = MAX_MP;
+    players[2].name = `CPU (Lv.${practiceBotLevel})`;
+    players[2].color = "#38bdf8";
+
+    updatePassphraseUI();
+    updateLoopUI();
+    updateRoomStatusBox();
+    updateStatusByPhase();
+    return;
+  }
+
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   phase = "playing";
   clearChatMessages();
@@ -2029,9 +2250,9 @@ function setMode(newMode, broadcastChange = true) {
 }
 
 function setStage(newStageKey, broadcastChange = true) {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || !STAGES[newStageKey]) return;
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || !STAGES[newStageKey]) return;
   if (phase === "playing" || phase === "gameover") return;
-  if (broadcastChange && !isHost()) return;
+  if (!isPracticeMode && broadcastChange && !isHost()) return;
   currentStageKey = newStageKey;
   stageSelectEl.value = currentStageKey;
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
@@ -2042,7 +2263,7 @@ function setStage(newStageKey, broadcastChange = true) {
   }
   updateRoomStatusBox();
   updateStatusByPhase();
-  if (broadcastChange && ws && ws.readyState === WebSocket.OPEN) {
+  if (!isPracticeMode && broadcastChange && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "stage", stageKey: currentStageKey }));
   }
 }
@@ -2051,19 +2272,43 @@ stageSelectEl.addEventListener("change", () => setStage(stageSelectEl.value, tru
 modeSelectEl.addEventListener("change", () => setMode(modeSelectEl.value, true));
 
 confirmMapBtn.addEventListener("click", () => {
-  if (!isHost() || phase !== "map_select") return;
+  if (phase !== "map_select") return;
+  if (isPracticeMode) {
+    setStage(stageSelectEl.value, false);
+    enterCharSelectPhase(false);
+    return;
+  }
+  if (!isHost()) return;
   setStage(stageSelectEl.value, false);
   setMode(modeSelectEl.value, false);
   enterCharSelectPhase(true);
 });
 
 backToMapBtn.addEventListener("click", () => {
-  if (!isHost() || (phase !== "char_select" && phase !== "countdown")) return;
+  if (phase !== "char_select" && phase !== "countdown") return;
+  if (isPracticeMode) {
+    enterMapSelectPhase(false);
+    return;
+  }
+  if (!isHost()) return;
   enterMapSelectPhase(true);
 });
 
 readyToggleBtn.addEventListener("click", () => {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (isPracticeMode) {
+    if (phase !== "char_select" && phase !== "countdown") return;
+    if (readyRoles.has(1)) {
+      readyRoles.delete(1);
+      readyRoles.delete(2);
+    } else {
+      readyRoles.add(1);
+      readyRoles.add(2);
+    }
+    checkAllReadyAndStartCountdown();
+    return;
+  }
+
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   if (phase !== "char_select" && phase !== "countdown") return;
 
   if (readyRoles.has(myRole)) {
@@ -2125,7 +2370,7 @@ hostLockBtn.addEventListener("click", () => {
 });
 
 function setSelectedCharByIndex(idx) {
-  if (isPracticeMode || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   if (phase !== "char_select" && phase !== "map_select") return;
   if (readyRoles.has(myRole)) return;
 
@@ -2134,11 +2379,13 @@ function setSelectedCharByIndex(idx) {
   charSelectDropdown.value = selectedChar;
   charDescInline.textContent = `(${CHAR_SPECS[selectedChar].desc})`;
 
-  if (!isPublicLobbyRoom() && players[myRole]) {
+  if (players[myRole]) {
     players[myRole].charKey = selectedChar;
     players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
     players[myRole].mp = MAX_MP;
-    sendCharChange();
+    if (!isPracticeMode && !isPublicLobbyRoom()) {
+      sendCharChange();
+    }
   }
 }
 
@@ -2156,6 +2403,7 @@ function sendCharChange() {
 function finishGame(info) {
   if (phase === "gameover") return;
   clearTimers();
+  isPracticeStopped = false;
   phase = "gameover";
   winnerInfo = info;
   resultSecLeft = RESULT_SECONDS;
@@ -2166,15 +2414,15 @@ function finishGame(info) {
     const winName = getDisplayNameOfRole(winRole);
     const headline = `${winName} WIN!`;
     const subline = winRole === 1 ? "練習場勝利！🎉" : "CPUに敗北...";
-    statusEl.textContent = `🤖 [練習場] ${headline}（${subline}） ${resultSecLeft}秒後に自動で再戦します...`;
+    statusEl.textContent = `🤖 [練習場] ${headline}（${subline}） ${resultSecLeft}秒後にマップ選択へ戻ります...`;
 
     countdownTimerId = setInterval(() => {
       resultSecLeft--;
       if (resultSecLeft > 0) {
-        statusEl.textContent = `🤖 [練習場] ${headline}（${subline}） ${resultSecLeft}秒後に自動で再戦します...`;
+        statusEl.textContent = `🤖 [練習場] ${headline}（${subline}） ${resultSecLeft}秒後にマップ選択へ戻ります...`;
       } else {
         clearTimers();
-        startPracticeMatch();
+        enterMapSelectPhase(false);
       }
     }, 1000);
     return;
@@ -2253,7 +2501,6 @@ function checkMatchEndCondition() {
   }
 }
 
-// 任意のエンティティ（自分・CPU両方）へダメージ＆ノックバック＆ハンマー蓄積を適用
 function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, pierceGuard = false, hitMeta = {}) {
   if (!targetEntity || targetEntity.stocks <= 0) return;
   const spec = CHAR_SPECS[targetEntity.charKey] || CHAR_SPECS.fighter;
@@ -2261,7 +2508,6 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
   const wasLight = !!hitMeta.wasLight;
   const nowMs = performance.now();
 
-  // 攻撃側のヒット確認処理（練習場のCPUまたは自分）
   const attacker = players[attackerRole];
   if (attacker && !hitMeta.fromClone) {
     if (attacker.charKey === "elementalist") {
@@ -2279,7 +2525,6 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
     }
   }
 
-  // 被弾側がハンマーなら蓄積/5秒後リセット処理
   if (targetEntity.charKey === "hammer") {
     handleHammerIncomingHit(targetEntity, wasSmash, wasLight, nowMs);
   }
@@ -2862,6 +3107,7 @@ function attachSocketHandlers(socket) {
 function connectToPassphrase(nextPassphrase, updateUrl = true) {
   if (!hasEnteredLobby) return;
   isPracticeMode = false;
+  isPracticeStopped = false;
   players[2].isBot = false;
   currentPassphrase = sanitizePassphrase(nextPassphrase);
   passphraseInputEl.value = currentPassphrase;
@@ -3067,7 +3313,7 @@ function executeAttackForEntity(actor, useSmash, chargeRatio = 0) {
 }
 
 function triggerAttack(useSmash, chargeRatio = 0) {
-  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   const me = players[myRole];
   executeAttackForEntity(me, useSmash, chargeRatio);
 }
@@ -3078,12 +3324,12 @@ window.addEventListener("keydown", e => {
   if (["INPUT", "SELECT"].includes(document.activeElement.tagName)) return;
   if (entryBlockedByHost || isRoomFullBlocked || myRole === 0) return;
 
-  if (!isPracticeMode && !isSpectator && (phase === "char_select" || phase === "map_select") && !down[e.code] && !readyRoles.has(myRole)) {
+  if (!isSpectator && (phase === "char_select" || phase === "map_select") && !down[e.code] && !readyRoles.has(myRole)) {
     if (e.code === "KeyA") setSelectedCharByIndex(selectedIdx - 1);
     if (e.code === "KeyD") setSelectedCharByIndex(selectedIdx + 1);
   }
 
-  if (!isPublicLobbyRoom() && !isSpectator && phase === "playing" && !down[e.code]) {
+  if (!isPublicLobbyRoom() && !isSpectator && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !down[e.code]) {
     const me = players[myRole];
     if (!me || me.stocks <= 0) return;
     const spec = CHAR_SPECS[me.charKey];
@@ -3109,7 +3355,7 @@ window.addEventListener("keydown", e => {
 window.addEventListener("keyup", e => {
   down[e.code] = false;
   if (e.code === "KeyK" && hasEnteredLobby && !["INPUT", "SELECT"].includes(document.activeElement.tagName)) {
-    if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0 || phase !== "playing") return;
+    if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0 || phase !== "playing" || (isPracticeMode && isPracticeStopped)) return;
     const me = players[myRole];
     if (!me || me.charKey === "enhancer" || me.charKey === "elementalist" || me.charKey === "summoner" || !me.smashCharging) return;
     me.smashCharging = false;
@@ -3146,10 +3392,6 @@ function sendHitFromActorToTarget(attackerRole, targetRole, dmg, basePower, dir,
   }
 }
 
-function sendHitToTarget(targetRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
-  sendHitFromActorToTarget(myRole, targetRole, dmg, basePower, dir, effect, upAngleMult, extra);
-}
-
 function sendHitFromActorToClone(attackerRole, ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
   if (isPracticeMode) {
     applyHitToCloneByOwner(ownerRole, dmg, basePower, dir, effect, upAngleMult, extra);
@@ -3158,10 +3400,6 @@ function sendHitFromActorToClone(attackerRole, ownerRole, dmg, basePower, dir, e
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "clone_hit", attackerRole, ownerRole, dmg, basePower, dir, effect, upAngleMult, ...extra }));
   }
-}
-
-function sendHitToEnemyClone(ownerRole, dmg, basePower, dir, effect = null, upAngleMult = 0.62, extra = {}) {
-  sendHitFromActorToClone(myRole, ownerRole, dmg, basePower, dir, effect, upAngleMult, extra);
 }
 
 function checkHitEnemyClonesByBoxForActor(attackerRole, box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false, hitMeta = {}) {
@@ -3180,10 +3418,6 @@ function checkHitEnemyClonesByBoxForActor(attackerRole, box, dmg, basePower, dir
     return true;
   }
   return false;
-}
-
-function checkHitEnemyClonesByBox(box, dmg, basePower, dir, effect = null, upAngleMult = 0.62, hitOwnerList = null, originX = null, originY = null, ignoreStageBlock = false, hitMeta = {}) {
-  return checkHitEnemyClonesByBoxForActor(myRole, box, dmg, basePower, dir, effect, upAngleMult, hitOwnerList, originX, originY, ignoreStageBlock, hitMeta);
 }
 
 function sendMyState(me, force = false) {
@@ -3340,7 +3574,7 @@ function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
 }
 
 function updateMyClone(dtScale, nowMs = performance.now()) {
-  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   updateCloneForOwner(myRole, dtScale, nowMs);
   if (isPracticeMode && clones[2] && clones[2].active) {
     updateCloneForOwner(2, dtScale, nowMs);
@@ -3348,7 +3582,7 @@ function updateMyClone(dtScale, nowMs = performance.now()) {
 }
 
 function updateBurnDebuffs(dtScale) {
-  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked) return;
   for (let i = burnDebuffs.length - 1; i >= 0; i--) {
     const b = burnDebuffs[i];
     const isMyBurn = (b.targetRole === myRole && !isSpectator);
@@ -3377,7 +3611,7 @@ function updateBeams(dtScale) {
   for (let i = beams.length - 1; i >= 0; i--) {
     const bm = beams[i];
     bm.life -= dtScale;
-    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
       ((bm.ownerRole === myRole && !isSpectator) || (isPracticeMode && bm.ownerRole === 2));
 
     if (isAuthoritative && bm.mode !== "heal") {
@@ -3422,7 +3656,7 @@ function updateRings(dtScale) {
     const rg = ringEffects[i];
     rg.life -= dtScale;
     const curRadius = rg.maxRadius * Math.min(1, (1 - Math.max(0, rg.life / rg.maxLife)) * 1.35);
-    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
       ((rg.ownerRole === myRole && !isSpectator) || (isPracticeMode && rg.ownerRole === 2));
 
     if (isAuthoritative) {
@@ -3576,17 +3810,17 @@ function handleEntityRingOut(actor) {
 }
 
 // ==========================================
-// 練習場 CPU AI（Lv.1〜10）の更新処理
+// 練習場 CPU AI（Lv.1〜10・対戦開始＆非停止時のみ稼働）
 // ==========================================
 function updatePracticeBot(dtScale, nowMs = performance.now()) {
-  if (!isPracticeMode || phase !== "playing") return;
+  if (!isPracticeMode || phase !== "playing" || isPracticeStopped) return;
   const bot = players[2];
   const target = players[1];
   if (!bot || !bot.active || bot.stocks <= 0) return;
 
   const spec = CHAR_SPECS[bot.charKey] || CHAR_SPECS.fighter;
   const maxJumps = getMaxJumpsForPlayer(bot);
-  const lv = Math.max(1, Math.min(10, practiceBotLevel)); // 1..10
+  const lv = Math.max(1, Math.min(10, practiceBotLevel));
 
   if ((bot.invincibleTimer || 0) > 0) bot.invincibleTimer = Math.max(0, bot.invincibleTimer - dtScale);
   if (bot.charKey === "elementalist") bot.mp = Math.min(MAX_MP, (bot.mp ?? MAX_MP) + (1 / 60) * dtScale);
@@ -3600,12 +3834,10 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
     const dx = (target.x + target.w * 0.5) - (bot.x + bot.w * 0.5);
     const dy = (target.y + target.h * 0.5) - (bot.y + bot.h * 0.5);
     const absDx = Math.abs(dx);
-    const st = getCurrentStage();
     const ground = findSolidBeneath(bot.x + bot.w * 0.5, bot.y + bot.h);
     const botCenterX = bot.x + bot.w * 0.5;
     const isOffstage = botCenterX < ground.x + 12 || botCenterX > ground.x + ground.w - 12 || bot.y + bot.h > ground.y + 18;
 
-    // 場外復帰行動（Lv.2以上で段々賢くなる）
     if (isOffstage && lv >= 2) {
       const stageMidX = canvas.width * 0.5;
       wantMoveDir = stageMidX >= botCenterX ? 1 : -1;
@@ -3616,14 +3848,12 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         bot.jumps--;
       }
     } else if (lv === 1) {
-      // Lv.1：超入門（ほぼその場で待機、たまに弱攻撃）
       bot.facing = dx >= 0 ? 1 : -1;
       if (absDx < 52 && Math.abs(dy) < 35 && bot.cooldown <= 0 && bot.atkTimer <= 0 && Math.random() < 0.015 * dtScale) {
         executeAttackForEntity(bot, false, 0);
       }
     } else {
-      // Lv.2〜10：レベルに応じた追尾・固有技・ガード・攻撃
-      const speedFactor = 0.32 + (lv - 1) * 0.075; // Lv.2:0.40 〜 Lv.10:1.00
+      const speedFactor = 0.32 + (lv - 1) * 0.075;
       const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 220 : 48;
 
       if (!bot.smashCharging) {
@@ -3635,7 +3865,6 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         }
       }
 
-      // 高台の相手へのジャンプ＆下りすり抜け
       if (dy < -75 && absDx < 160 && bot.jumps > 0 && bot.vy >= -1 && Math.random() < (0.015 + lv * 0.008) * dtScale) {
         bot.vy = spec.jumpPower;
         bot.jumps--;
@@ -3643,29 +3872,24 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         wantDropThrough = true;
       }
 
-      // 相手の攻撃に対するシールド防御（Lv.5以上）
       if (lv >= 5 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 35 && target.atkTimer > 0 && absDx < 95 && Math.abs(dy) < 55) {
-        const shieldChance = (lv - 4) * 0.11; // Lv.5:11% 〜 Lv.10:66%
+        const shieldChance = (lv - 4) * 0.11;
         if (Math.random() < shieldChance) {
           wantShield = true;
         }
       }
 
-      // 固有技＆スマッシュ＆通常攻撃の判断
       if (!wantShield && bot.cooldown <= 0 && bot.atkTimer <= 0) {
-        // 強化タイプ（Lv.4以上でK強化）
         if (bot.charKey === "enhancer" && lv >= 4 && bot.enhanceLevel < ENHANCE_MAX_LEVEL && nowMs >= bot.enhanceCooldownUntil) {
           if (Math.random() < (0.02 + lv * 0.012) * dtScale) {
             tryEnhanceSelfForEntity(bot);
           }
         }
-        // 召喚タイプ（Lv.4以上でKクローン召喚）
         if (bot.charKey === "summoner" && lv >= 4 && !(clones[2] && clones[2].active) && nowMs >= bot.summonCooldownUntil) {
           if (Math.random() < (0.02 + lv * 0.015) * dtScale) {
             trySummonCloneForRole(2);
           }
         }
-        // 精霊魔法タイプ（Lv.4以上で状況に応じて魔法切替＆発動）
         if (bot.charKey === "elementalist" && lv >= 4 && (bot.mp || 0) >= 10) {
           if (bot.percent >= 70 && (bot.mp || 0) >= 30) bot.magicMode = "heal";
           else if ((bot.mp || 0) >= 85 && absDx < 190 && lv >= 6) bot.magicMode = "magic";
@@ -3678,7 +3902,6 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
           }
         }
 
-        // スマッシュチャージ解放判定
         if (bot.smashCharging) {
           const heldMs = Date.now() - bot.smashChargeStart;
           const releaseWindow = absDx < 76 && Math.abs(dy) < 46;
@@ -3688,7 +3911,6 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
             executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 1.0));
           }
         } else {
-          // ハンマー会心状態なら積極的にスマッシュ狙い
           const botHammerCrit = bot.charKey === "hammer" && isHammerCritState(bot, nowMs);
           if (botHammerCrit && absDx < 86 && Math.abs(dy) < 48 && lv >= 3) {
             executeAttackForEntity(bot, true, 0.25);
@@ -3712,7 +3934,6 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
     }
   }
 
-  // シールド更新
   if (wantShield && !bot.burnedOut && bot.stun <= 0 && bot.atkTimer <= 0 && !bot.smashCharging) {
     bot.shielding = true;
     bot.shieldHp -= spec.shieldDrain * dtScale;
@@ -3767,7 +3988,7 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
 }
 
 function updateMyPlayer(dtScale, nowMs = performance.now()) {
-  if (isPublicLobbyRoom() || phase !== "playing" || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   const me = players[myRole];
   if (!me || me.stocks <= 0) return;
   const spec = CHAR_SPECS[me.charKey];
@@ -3815,8 +4036,7 @@ function updateMyPlayer(dtScale, nowMs = performance.now()) {
   if (me.stun > 0) {
     me.stun = Math.max(0, me.stun - dtScale);
     if (me.stun === 0) {
-      me.frozen = false;
-      if (me.burnedOut) { me.burnedOut = false; me.shieldHp = 60; }
+      botFrozenCleanup(me);
     }
   }
 
@@ -3828,6 +4048,11 @@ function updateMyPlayer(dtScale, nowMs = performance.now()) {
   }
 
   sendMyState(me, false);
+}
+
+function botFrozenCleanup(entity) {
+  entity.frozen = false;
+  if (entity.burnedOut) { entity.burnedOut = false; entity.shieldHp = 60; }
 }
 
 function updateProjectiles(dtScale) {
@@ -3849,7 +4074,7 @@ function updateProjectiles(dtScale) {
       continue;
     }
 
-    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
       ((pr.ownerRole === myRole && !isSpectator) || (isPracticeMode && pr.ownerRole === 2));
 
     if (isAuthoritative) {
@@ -3888,13 +4113,15 @@ function loop(now) {
   ctx.fillStyle = st.bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  updateMyPlayer(dtScale, now);
-  updatePracticeBot(dtScale, now);
-  updateMyClone(dtScale, now);
-  updateBurnDebuffs(dtScale);
-  updateBeams(dtScale);
-  updateRings(dtScale);
-  updateProjectiles(dtScale);
+  if (!(isPracticeMode && isPracticeStopped)) {
+    updateMyPlayer(dtScale, now);
+    updatePracticeBot(dtScale, now);
+    updateMyClone(dtScale, now);
+    updateBurnDebuffs(dtScale);
+    updateBeams(dtScale);
+    updateRings(dtScale);
+    updateProjectiles(dtScale);
+  }
 
   for (const solid of st.solids) {
     ctx.fillStyle = st.groundColor;
@@ -4136,21 +4363,23 @@ function loop(now) {
     ctx.font = "bold 30px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
     ctx.fillText("🔒 ホストが入室するまで入れません", canvas.width / 2, 210);
     ctx.textAlign = "left";
-  } else if (!isPracticeMode && phase === "map_select") {
+  } else if (phase === "map_select") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#38bdf8"; ctx.textAlign = "center";
-    ctx.fillText(`🗺️ ステップ1：ホストがマップを決定中（${st.name}）`, canvas.width / 2, 180);
+    const prefix = isPracticeMode ? "🤖 [練習場] " : "";
+    ctx.fillText(`${prefix}🗺️ ステップ1：マップ決定中（${st.name}）`, canvas.width / 2, 180);
     ctx.font = "17px sans-serif"; ctx.fillStyle = "#f8fafc";
     ctx.fillText(isHost() ? "マップを選んで「このマップでキャラ選択へ」を押してください" : "ホストがマップを決定するのを待っています...", canvas.width / 2, 225);
     ctx.textAlign = "left";
-  } else if (!isPracticeMode && phase === "char_select") {
+  } else if (phase === "char_select") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = "bold 32px sans-serif"; ctx.fillStyle = "#4ade80"; ctx.textAlign = "center";
     const participants = getParticipantRoles();
     const doneCount = participants.filter(r => readyRoles.has(r)).length;
-    ctx.fillText(`🎭 ステップ2：キャラ選択＆完了待ち（${doneCount} / ${participants.length} 人完了）`, canvas.width / 2, 165);
+    const prefix = isPracticeMode ? "🤖 [練習場] " : "";
+    ctx.fillText(`${prefix}🎭 ステップ2：キャラ選択＆完了待ち（${doneCount} / ${participants.length} 人完了）`, canvas.width / 2, 165);
     ctx.font = "18px sans-serif"; ctx.fillStyle = "#f8fafc";
     const summary = participants.map(r => {
       const mark = readyRoles.has(r) ? "✅" : "⏳";
@@ -4158,15 +4387,23 @@ function loop(now) {
     }).join(" ／ ");
     ctx.fillText(summary || "参加待機中...", canvas.width / 2, 210);
     ctx.font = "16px sans-serif"; ctx.fillStyle = "#cbd5e1";
-    ctx.fillText(`マップ：${st.name} ｜ 全員「✅ 完了にする」を押すと10秒カウントが始まります`, canvas.width / 2, 250);
+    ctx.fillText(`マップ：${st.name} ｜ 「✅ 完了にする」を押すと10秒カウントが始まります`, canvas.width / 2, 250);
     ctx.textAlign = "left";
-  } else if (!isPracticeMode && phase === "countdown") {
+  } else if (phase === "countdown") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = "bold 40px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
     ctx.fillText(`⏱️ 全員完了！ 開始まで ${countdownLeft} 秒`, canvas.width / 2, 185);
     ctx.font = "18px sans-serif"; ctx.fillStyle = "#f8fafc";
     ctx.fillText(`マップ：${st.name}`, canvas.width / 2, 230);
+    ctx.textAlign = "left";
+  } else if (phase === "playing" && isPracticeMode && isPracticeStopped) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.52)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "bold 38px sans-serif"; ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center";
+    ctx.fillText("⏸ ストップ中", canvas.width / 2, 210);
+    ctx.font = "17px sans-serif"; ctx.fillStyle = "#f8fafc";
+    ctx.fillText("上の「▶ スタート」で再開、「🔄 リセット」でやり直しができます", canvas.width / 2, 252);
     ctx.textAlign = "left";
   } else if (phase === "gameover" && winnerInfo) {
     ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
@@ -4182,9 +4419,7 @@ function loop(now) {
     }
     ctx.font = "17px sans-serif"; ctx.fillStyle = "#fbbf24";
     ctx.fillText(
-      isPracticeMode
-        ? `${resultSecLeft} 秒後に練習場を再スタートします...`
-        : `${resultSecLeft} 秒後にマップ選択へ戻ります（観戦中の方も次から参加）...`,
+      `${resultSecLeft} 秒後にマップ選択へ戻ります...`,
       canvas.width / 2, 245
     );
     ctx.textAlign = "left";
