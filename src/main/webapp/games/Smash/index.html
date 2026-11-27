@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（CPU難易度調整・クローン攻撃対応版）</title>
+<title>スマブラ風マルチ対戦（魔法L速度調整版）</title>
 <style>
   body {
     margin: 0;
@@ -420,7 +420,6 @@ const GUARDIAN_INVINCIBLE_FRAMES = 180;
 const RESPAWN_INVINCIBLE_FRAMES = 300;
 const SUMMON_COOLDOWN_MS = 30000;
 const SUMMON_CLONE_MAX_PERCENT = 100;
-// クローン召喚は初期3キャラ（格闘・防御・魔法）のみ
 const SUMMON_CANDIDATES = ["fighter", "guardian", "mage"];
 const COUNTDOWN_SECONDS = 10;
 const RESULT_SECONDS = 3;
@@ -663,7 +662,7 @@ const CHAR_SPECS = {
   mage: {
     name: "🔮 魔法タイプ",
     shortName: "魔法",
-    desc: "Lレーザー攻撃＆魔法スマッシュ",
+    desc: "Lレーザー攻撃(連射控えめ)＆魔法スマッシュ",
     color: "#c084fc",
     moveAcc: 0.92,
     friction: 0.82,
@@ -671,7 +670,7 @@ const CHAR_SPECS = {
     maxJumps: 2,
     weight: 1.00,
     lightDmg: 8,
-    lightCooldown: 16,
+    lightCooldown: 34,
     smashDmg: 13,
     smashCooldown: 25,
     shieldDrain: 0.45
@@ -840,7 +839,6 @@ const initialUrlParams = new URLSearchParams(location.search);
 let currentPassphrase = sanitizePassphrase(initialUrlParams.get("room") || "");
 passphraseInputEl.value = currentPassphrase;
 
-// 練習場モード管理
 let isPracticeMode = false;
 let isPracticeStopped = false;
 let practiceBotChar = "fighter";
@@ -886,7 +884,6 @@ let burnDebuffs = [];
 let clones = {};
 let chatMessages = [];
 
-// ハンマー状態管理（5秒絶対会心・被弾蓄積＆リセット）
 function ensureHammerCritState(entity, nowMs = performance.now()) {
   if (!entity || entity.charKey !== "hammer") return;
   if (typeof entity.critLightHitsAfterExpiry !== "number") {
@@ -1642,9 +1639,6 @@ function syncReadyRolesToActive() {
   readyRoles = new Set([...readyRoles].filter(r => participantSet.has(r)));
 }
 
-// ==========================================
-// 練習場（ステップ進行・ストップ / スタート / リセット）
-// ==========================================
 function enterPracticeModeSteps() {
   if (!hasEnteredLobby) {
     hasEnteredLobby = true;
@@ -3516,7 +3510,8 @@ function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
     const inAttackRange = cl.charKey === "mage" ? (Math.abs(dx) <= 360 && Math.abs(dy) <= 36) : (Math.abs(dx) <= 46 && Math.abs(dy) <= 36);
     if (inAttackRange && cl.cooldown <= 0 && cl.atkTimer <= 0 && Math.random() < 0.14) {
       cl.atkTimer = cl.charKey === "fighter" ? 7 : 10;
-      cl.cooldown = spec.lightCooldown + 28;
+      const baseCloneLightCd = cl.charKey === "mage" ? 16 : spec.lightCooldown;
+      cl.cooldown = baseCloneLightCd + 28;
       cl.hasHit = false;
       if (cl.charKey === "mage") {
         const laserLen = 360, laserH = 10;
@@ -3810,9 +3805,6 @@ function handleEntityRingOut(actor) {
   checkMatchEndCondition();
 }
 
-// ==========================================
-// 練習場 CPU AI（Lv.1〜10 調整版・全レベルでクローン攻撃対応）
-// ==========================================
 function findBotCombatTarget(bot) {
   const player1 = players[1];
   const enemyClone = clones[1];
@@ -3832,7 +3824,6 @@ function findBotCombatTarget(bot) {
     (enemyClone.y + enemyClone.h * 0.5) - (bot.y + bot.h * 0.5)
   );
 
-  // 敵クローンが近くにいればクローンも積極的に狙う（Lv.10でもクローン優先しすぎず適度に散らす）
   if (clDist < p1Dist * 0.88 && clDist < 240) {
     return enemyClone;
   }
@@ -3882,8 +3873,7 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         executeAttackForEntity(bot, false, 0);
       }
     } else {
-      // 以前より移動・攻撃頻度を落とし、Lv.10でもギリ勝てる程度に調整
-      const speedFactor = 0.22 + (lv - 1) * 0.048; // Lv.5: ~0.41, Lv.10: ~0.65
+      const speedFactor = 0.22 + (lv - 1) * 0.048;
       const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 235 : 50;
 
       if (!bot.smashCharging) {
@@ -3901,7 +3891,7 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
       }
 
       if (lv >= 6 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 45 && mainPlayer && mainPlayer.atkTimer > 0 && absDx < 82 && Math.abs(dy) < 48) {
-        const shieldChance = (lv - 5) * 0.055; // 最大 ~0.275
+        const shieldChance = (lv - 5) * 0.055;
         if (Math.random() < shieldChance) {
           wantShield = true;
         }
@@ -3952,7 +3942,7 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
           } else {
             const lightRangeX = bot.charKey === "mage" ? 360 : 52;
             const lightRangeY = bot.charKey === "mage" ? 26 : 38;
-            const attackRate = 0.014 + lv * 0.0095; // Lv.5: ~0.06, Lv.10: ~0.11
+            const attackRate = 0.014 + lv * 0.0095;
             if (absDx <= lightRangeX && Math.abs(dy) <= lightRangeY && Math.random() < attackRate * dtScale) {
               executeAttackForEntity(bot, false, 0);
             }
