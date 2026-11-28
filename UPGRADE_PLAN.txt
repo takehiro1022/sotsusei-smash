@@ -1,1 +1,17 @@
-1
+# Smash safe-improvement plan
+
+Branch: `feature/smash-safe-improvement`
+
+## Applied
+- Enforce the existing client-side ranked room capacity (20 players) on the WebSocket server.
+- Preserve the existing public lobby (30) and private battle room (4) capacities.
+
+## Constraints
+- Keep the existing game content and controls intact.
+- Prefer incremental changes that can be reviewed and tested independently.
+- Keep deployment compatible with the existing Render free-tier Docker/Tomcat setup.
+
+## Next review items
+- Inspect the full game script before touching physics, combat, or stage gimmicks.
+- Verify the deployed WebSocket URL under the `/sotsusei` context path.
+- Add gameplay improvements only when they can be isolated and regression-tested.

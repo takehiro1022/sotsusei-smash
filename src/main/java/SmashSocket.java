@@ -13,8 +13,10 @@ import jakarta.websocket.server.ServerEndpoint;
 @ServerEndpoint("/smash-ws")
 public class SmashSocket {
     private static final int MAX_BATTLE_PLAYERS = 4;
+    private static final int MAX_RANKED_ROOM_PLAYERS = 20;
     private static final int MAX_LOBBY_PLAYERS = 30;
     private static final String DEFAULT_ROOM = "default";
+    private static final String RANKED_ROOM_ID = "__ranked_room__";
     private static final int MAX_ROOM_ID_LENGTH = 32;
 
     // 合言葉(roomId) -> 部屋状態
@@ -32,9 +34,9 @@ public class SmashSocket {
         }
 
         synchronized int allocateRole() {
-            for (int r = 1; r <= maxPlayers; r++) {
-                if (!players.containsValue(r)) {
-                    return r;
+            for (int role = 1; role <= maxPlayers; role++) {
+                if (!players.containsValue(role)) {
+                    return role;
                 }
             }
             return -1;
@@ -47,10 +49,10 @@ public class SmashSocket {
               .append("\",\"maxPlayers\":").append(maxPlayers)
               .append(",\"roles\":[");
             boolean first = true;
-            for (int r = 1; r <= maxPlayers; r++) {
-                if (players.containsValue(r)) {
+            for (int role = 1; role <= maxPlayers; role++) {
+                if (players.containsValue(role)) {
                     if (!first) sb.append(",");
-                    sb.append(r);
+                    sb.append(role);
                     first = false;
                 }
             }
@@ -62,7 +64,7 @@ public class SmashSocket {
     @OnOpen
     public void onOpen(Session session) throws IOException {
         String roomId = extractRoomId(session);
-        int capacity = DEFAULT_ROOM.equals(roomId) ? MAX_LOBBY_PLAYERS : MAX_BATTLE_PLAYERS;
+        int capacity = getRoomCapacity(roomId);
         Room room = rooms.computeIfAbsent(roomId, id -> new Room(id, capacity));
 
         int role;
@@ -70,7 +72,8 @@ public class SmashSocket {
             role = room.allocateRole();
             if (role == -1) {
                 cleanupRoomIfEmpty(room);
-                safeSend(session, "{\"type\":\"full\",\"room\":\"" + escapeJson(roomId) + "\",\"maxPlayers\":" + room.maxPlayers + "}");
+                safeSend(session, "{\"type\":\"full\",\"room\":\"" + escapeJson(roomId)
+                        + "\",\"maxPlayers\":" + room.maxPlayers + "}");
                 try {
                     session.close();
                 } catch (IOException ignored) {}
@@ -80,8 +83,19 @@ public class SmashSocket {
             session.getUserProperties().put("roomId", roomId);
         }
 
-        safeSend(session, "{\"type\":\"role\",\"role\":" + role + ",\"room\":\"" + escapeJson(roomId) + "\",\"maxPlayers\":" + room.maxPlayers + "}");
+        safeSend(session, "{\"type\":\"role\",\"role\":" + role + ",\"room\":\""
+                + escapeJson(roomId) + "\",\"maxPlayers\":" + room.maxPlayers + "}");
         broadcastRoom(room);
+    }
+
+    private int getRoomCapacity(String roomId) {
+        if (DEFAULT_ROOM.equals(roomId)) {
+            return MAX_LOBBY_PLAYERS;
+        }
+        if (RANKED_ROOM_ID.equals(roomId)) {
+            return MAX_RANKED_ROOM_PLAYERS;
+        }
+        return MAX_BATTLE_PLAYERS;
     }
 
     @OnMessage
@@ -94,9 +108,9 @@ public class SmashSocket {
             return;
         }
 
-        for (Session s : room.players.keySet()) {
-            if (s != null && s.isOpen() && !s.equals(sender)) {
-                safeSend(s, message);
+        for (Session session : room.players.keySet()) {
+            if (session != null && session.isOpen() && !session.equals(sender)) {
+                safeSend(session, message);
             }
         }
     }
@@ -145,19 +159,19 @@ public class SmashSocket {
         broadcast(room, room.buildRoomJson());
     }
 
-    private void broadcast(Room room, String msg) {
-        for (Session s : room.players.keySet()) {
-            if (s != null && s.isOpen()) {
-                safeSend(s, msg);
+    private void broadcast(Room room, String message) {
+        for (Session session : room.players.keySet()) {
+            if (session != null && session.isOpen()) {
+                safeSend(session, message);
             }
         }
     }
 
-    private void safeSend(Session session, String msg) {
+    private void safeSend(Session session, String message) {
         if (session == null || !session.isOpen()) return;
         synchronized (session) {
             try {
-                session.getBasicRemote().sendText(msg);
+                session.getBasicRemote().sendText(message);
             } catch (Exception ignored) {}
         }
     }
@@ -180,8 +194,8 @@ public class SmashSocket {
         return trimmed;
     }
 
-    private static String escapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    private static String escapeJson(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }
