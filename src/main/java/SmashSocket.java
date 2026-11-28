@@ -18,6 +18,7 @@ public class SmashSocket {
     private static final String DEFAULT_ROOM = "default";
     private static final String RANKED_ROOM_ID = "__ranked_room__";
     private static final int MAX_ROOM_ID_LENGTH = 32;
+    private static final int MAX_MESSAGE_LENGTH = 65536;
 
     // 合言葉(roomId) -> 部屋状態
     private static final Map<String, Room> rooms = new ConcurrentHashMap<>();
@@ -27,13 +28,14 @@ public class SmashSocket {
         final int maxPlayers;
         // Session -> 役割番号(1..maxPlayers)
         final Map<Session, Integer> players = new ConcurrentHashMap<>();
+        boolean closed = false;
 
         Room(String id, int maxPlayers) {
             this.id = id;
             this.maxPlayers = maxPlayers;
         }
 
-        synchronized int allocateRole() {
+        int allocateRole() {
             for (int role = 1; role <= maxPlayers; role++) {
                 if (!players.containsValue(role)) {
                     return role;
@@ -63,29 +65,37 @@ public class SmashSocket {
 
     @OnOpen
     public void onOpen(Session session) throws IOException {
+        if (session == null) return;
+
         String roomId = extractRoomId(session);
         int capacity = getRoomCapacity(roomId);
-        Room room = rooms.computeIfAbsent(roomId, id -> new Room(id, capacity));
 
-        int role;
-        synchronized (room) {
-            role = room.allocateRole();
-            if (role == -1) {
-                cleanupRoomIfEmpty(room);
-                safeSend(session, "{\"type\":\"full\",\"room\":\"" + escapeJson(roomId)
-                        + "\",\"maxPlayers\":" + room.maxPlayers + "}");
-                try {
-                    session.close();
-                } catch (IOException ignored) {}
-                return;
+        while (true) {
+            Room room = rooms.computeIfAbsent(roomId, id -> new Room(id, capacity));
+            int role;
+            synchronized (room) {
+                if (room.closed) {
+                    continue;
+                }
+                role = room.allocateRole();
+                if (role == -1) {
+                    cleanupRoomIfEmpty(room);
+                    safeSend(session, "{\"type\":\"full\",\"room\":\"" + escapeJson(roomId)
+                            + "\",\"maxPlayers\":" + room.maxPlayers + "}");
+                    try {
+                        session.close();
+                    } catch (IOException ignored) {}
+                    return;
+                }
+                room.players.put(session, role);
+                session.getUserProperties().put("roomId", roomId);
             }
-            room.players.put(session, role);
-            session.getUserProperties().put("roomId", roomId);
-        }
 
-        safeSend(session, "{\"type\":\"role\",\"role\":" + role + ",\"room\":\""
-                + escapeJson(roomId) + "\",\"maxPlayers\":" + room.maxPlayers + "}");
-        broadcastRoom(room);
+            safeSend(session, "{\"type\":\"role\",\"role\":" + role + ",\"room\":\""
+                    + escapeJson(roomId) + "\",\"maxPlayers\":" + room.maxPlayers + "}");
+            broadcastRoom(room);
+            return;
+        }
     }
 
     private int getRoomCapacity(String roomId) {
@@ -101,6 +111,9 @@ public class SmashSocket {
     @OnMessage
     public void onMessage(String message, Session sender) {
         if (message == null || sender == null) {
+            return;
+        }
+        if (message.length() > MAX_MESSAGE_LENGTH) {
             return;
         }
         Room room = getRoom(sender);
@@ -150,6 +163,7 @@ public class SmashSocket {
     private void cleanupRoomIfEmpty(Room room) {
         synchronized (room) {
             if (room.players.isEmpty()) {
+                room.closed = true;
                 rooms.remove(room.id, room);
             }
         }
@@ -191,11 +205,34 @@ public class SmashSocket {
         if (trimmed.length() > MAX_ROOM_ID_LENGTH) {
             trimmed = trimmed.substring(0, MAX_ROOM_ID_LENGTH);
         }
+
+        // 内部予約名との衝突を防止
+        if (RANKED_ROOM_ID.equals(trimmed)) {
+            return DEFAULT_ROOM;
+        }
         return trimmed;
     }
 
     private static String escapeJson(String value) {
         if (value == null) return "";
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.toString();
     }
 }
