@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（ギミック6ステージ＋必殺技追加版）</title>
+<title>スマブラ風マルチ対戦（レート戦20人ロビー・1on1近レートマッチ・称号バナー版）</title>
 <style>
   body {
     margin: 0;
@@ -124,6 +124,7 @@
   #stage-select, #practice-stage-select { min-width: 205px; }
   #char-select-dropdown, #practice-bot-char-select { min-width: 185px; }
   #practice-bot-level-select { min-width: 135px; }
+  #title-select { min-width: 175px; }
   .btn {
     background: #2563eb;
     color: #fff;
@@ -153,6 +154,12 @@
     color: #fff;
   }
   .btn.practice:hover:not(:disabled) { background: #0f766e; }
+  .btn.ranked {
+    background: #b45309;
+    border-color: #fbbf24;
+    color: #fef08a;
+  }
+  .btn.ranked:hover:not(:disabled) { background: #92400e; }
   .btn.ready-active {
     background: #d97706;
     border-color: #fbbf24;
@@ -162,6 +169,49 @@
     background: #451a1a;
     border-color: #ef4444;
     color: #fca5a5;
+  }
+  .title-banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.02em;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    white-space: nowrap;
+  }
+  .title-banner.tier-rookie {
+    background: linear-gradient(90deg, #475569 0%, #64748b 100%);
+    color: #f8fafc;
+    border-color: #94a3b8;
+  }
+  .title-banner.tier-silver {
+    background: linear-gradient(90deg, #1e3a8a 0%, #0284c7 100%);
+    color: #e0f2fe;
+    border-color: #38bdf8;
+  }
+  .title-banner.tier-gold {
+    background: linear-gradient(90deg, #92400e 0%, #d97706 55%, #f59e0b 100%);
+    color: #fef9c3;
+    border-color: #fde047;
+  }
+  .title-banner.tier-crimson {
+    background: linear-gradient(90deg, #7f1d1d 0%, #be123c 55%, #e11d48 100%);
+    color: #ffe4e6;
+    border-color: #fda4af;
+  }
+  .title-banner.tier-mythic {
+    background: linear-gradient(90deg, #4c1d95 0%, #7e22ce 45%, #c026d3 100%);
+    color: #fae8ff;
+    border-color: #f0abfc;
+  }
+  .title-banner.tier-emerald {
+    background: linear-gradient(90deg, #065f46 0%, #059669 60%, #10b981 100%);
+    color: #ecfdf5;
+    border-color: #6ee7b7;
   }
   .color-swatch-btn {
     display: inline-flex;
@@ -324,19 +374,30 @@
 </div>
 
 <div id="top-bar">名前を確認中...</div>
-<div id="room-status-box">ロビー節名：公開待機ロビー ｜ 現在の入室人数：確認中...</div>
+<div id="room-status-box">公開待機ロビー ｜ 現在の入室人数：確認中...</div>
 
 <div class="panel-row" id="room-profile-row">
   <span>👤</span>
   <input id="inline-name-input" type="text" maxlength="14" placeholder="プレイヤー名">
   <button id="save-inline-name-btn" class="btn secondary" type="button">名前変更</button>
+  <span id="rating-badge" style="color:#fbbf24;font-weight:bold;">🏅 1500 RP (最高 1500)</span>
+  <span id="equipped-title-banner" class="title-banner tier-rookie">🔰 駆け出し挑戦者</span>
+  <select id="title-select" title="装備する称号を選択"></select>
   <div class="divider"></div>
   <span>🔑</span>
   <input id="passphrase-input" type="text" maxlength="32" placeholder="合言葉（空でロビー）">
   <button id="join-passphrase-btn" class="btn" type="button">合言葉入室</button>
   <button id="public-room-btn" class="btn secondary" type="button">公開待機部屋（ロビー）</button>
+  <button id="open-ranked-btn" class="btn ranked" type="button">🏆 レート戦（20人）</button>
   <button id="open-practice-btn" class="btn practice" type="button">🤖 練習場</button>
-  <span id="current-passphrase-badge">ロビー節名：公開待機ロビー（最大30人）</span>
+  <span id="current-passphrase-badge">：公開待機ロビー（最大30人）</span>
+</div>
+
+<div class="panel-row hidden" id="ranked-queue-row">
+  <span>⚔️ レート戦1on1マッチ：</span>
+  <button id="ranked-queue-toggle-btn" class="btn success" type="button">🎯 ランダムマッチ開始</button>
+  <span id="ranked-queue-status" style="color:#fde047;font-weight:bold;">待機中：0人 ｜ 近いレート優先で2人マッチ</span>
+  <span id="ranked-roster-preview" style="color:#cbd5e1;font-size:12px;"></span>
 </div>
 
 <div class="panel-row hidden" id="practice-control-row">
@@ -400,13 +461,17 @@
 </div>
 
 <div id="controls-guide">
-  操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ(最優先) ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃（<b>W+L</b>上 / <b>S+L</b>下 / <b>A・D+L</b>左右 ※魔法は左右のみビーム） ｜ <b>K</b> スマッシュ・特殊 ｜ <b>U</b> 必殺技(ゲージ1000) ｜ <b>I</b> 切替 ｜ <b>J</b> バリア
+  操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ(最優先) ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃（<b>W+L</b>上 / <b>S+L</b>下 / <b>A・D+L</b>左右 ※魔法は左右のみビーム） ｜ <b>K</b> スマッシュ・特殊 ｜ <b>U</b> 必殺技(通常戦のみ) ｜ <b>I</b> 切替 ｜ <b>J</b> バリア
 </div>
 
 <script>
 const MAX_BATTLE_PLAYERS = 4;
+const MAX_RANKED_ROOM_PLAYERS = 20;
 const MAX_LOBBY_PLAYERS = 30;
 const LOBBY_SECTION_NAME = "公開待機ロビー";
+const RANKED_ROOM_ID = "__ranked_room__";
+const RANKED_STAGE_KEYS = ["battlefield", "final"];
+const DEFAULT_RATING = 1500;
 const MAX_STOCK = 3;
 const MAX_SHIELD = 160;
 const MAX_MP = 100;
@@ -433,6 +498,34 @@ const ULTIMATE_HIT_GAIN = 10;
 const ULTIMATE_HURT_GAIN = 5;
 const CHAT_MAX_ITEMS = 40;
 let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
+
+const TITLE_CATALOG = {
+  rookie: { id: "rookie", label: "🔰 駆け出し挑戦者", tier: "tier-rookie", desc: "初期称号" },
+  first_win: { id: "first_win", label: "✨ はじめの一歩", tier: "tier-emerald", desc: "初勝利を達成" },
+  streak_3: { id: "streak_3", label: "🔥 破竹の3連勝", tier: "tier-gold", desc: "3連勝を達成" },
+  streak_5: { id: "streak_5", label: "⚡ 無敗神話の5連勝", tier: "tier-crimson", desc: "5連勝を達成" },
+  rp_1550: { id: "rp_1550", label: "📘 頭角を現す者(1550+)", tier: "tier-silver", desc: "レート1550到達" },
+  rp_1600: { id: "rp_1600", label: "💎 実力派ファイター(1600+)", tier: "tier-silver", desc: "レート1600到達" },
+  rp_1700: { id: "rp_1700", label: "👑 猛者の領域(1700+)", tier: "tier-gold", desc: "レート1700到達" },
+  rp_1800: { id: "rp_1800", label: "🌟 頂点に迫る者(1800+)", tier: "tier-mythic", desc: "レート1800到達" },
+  peak_breaker: { id: "peak_breaker", label: "🚀 限界突破の記録者", tier: "tier-gold", desc: "最高レート1650以上" },
+  comeback: { id: "comeback", label: "💥 土壇場の逆転劇", tier: "tier-crimson", desc: "100%超えから勝利" },
+  close_match: { id: "close_match", label: "⚔️ 紙一重の死闘", tier: "tier-emerald", desc: "最終ストック接戦勝利" },
+  veteran_10w: { id: "veteran_10w", label: "🏅 10勝の闘士", tier: "tier-silver", desc: "累計10勝達成" },
+  veteran_20m: { id: "veteran_20m", label: "🛡️ 百戦錬磨の挑戦者", tier: "tier-mythic", desc: "累計20戦達成" }
+};
+
+function getTitleMeta(titleId) {
+  return TITLE_CATALOG[titleId] || TITLE_CATALOG.rookie;
+}
+
+function renderTitleBannerElement(el, titleId) {
+  if (!el) return;
+  const meta = getTitleMeta(titleId);
+  el.className = `title-banner ${meta.tier}`;
+  el.textContent = meta.label;
+  el.title = `${meta.label}：${meta.desc}`;
+}
 
 const BOT_LEVEL_LABELS = {
   1: "Lv.1 (超入門)",
@@ -1065,15 +1158,23 @@ const gateNameInput = document.getElementById("gate-name-input");
 const gateEnterBtn = document.getElementById("gate-enter-btn");
 const inlineNameInput = document.getElementById("inline-name-input");
 const saveInlineNameBtn = document.getElementById("save-inline-name-btn");
+const ratingBadgeEl = document.getElementById("rating-badge");
+const equippedTitleBannerEl = document.getElementById("equipped-title-banner");
+const titleSelectEl = document.getElementById("title-select");
+const rankedQueueRow = document.getElementById("ranked-queue-row");
+const rankedQueueToggleBtn = document.getElementById("ranked-queue-toggle-btn");
+const rankedQueueStatusEl = document.getElementById("ranked-queue-status");
+const rankedRosterPreviewEl = document.getElementById("ranked-roster-preview");
 const roomProfileRow = document.getElementById("room-profile-row");
 const practiceControlRow = document.getElementById("practice-control-row");
 const practiceBotRow = document.getElementById("practice-bot-row");
 const practiceStopBtn = document.getElementById("practice-stop-btn");
 const practiceStartResumeBtn = document.getElementById("practice-start-resume-btn");
 const practiceResetBtn = document.getElementById("practice-reset-btn");
+const practiceExitBtn = document.getElementById("practice-exit-btn");
 const practiceBotCharSelect = document.getElementById("practice-bot-char-select");
 const practiceBotLevelSelect = document.getElementById("practice-bot-level-select");
-const practiceExitBtn = document.getElementById("practice-exit-btn");
+const openRankedBtn = document.getElementById("open-ranked-btn");
 const openPracticeBtn = document.getElementById("open-practice-btn");
 const colorRow = document.getElementById("color-row");
 const colorPaletteEl = document.getElementById("color-palette");
@@ -1102,6 +1203,130 @@ const passphraseInputEl = document.getElementById("passphrase-input");
 const joinPassphraseBtn = document.getElementById("join-passphrase-btn");
 const publicRoomBtn = document.getElementById("public-room-btn");
 const currentPassphraseBadgeEl = document.getElementById("current-passphrase-badge");
+
+function loadPlayerRating() {
+  const raw = Number(localStorage.getItem("smash_player_rating"));
+  if (!Number.isFinite(raw) || raw < 0) return DEFAULT_RATING;
+  return Math.floor(raw);
+}
+
+function loadPeakRating(currentRp) {
+  const raw = Number(localStorage.getItem("smash_peak_rating"));
+  const base = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : DEFAULT_RATING;
+  return Math.max(base, currentRp);
+}
+
+function loadPlayerStats() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem("smash_player_stats") || "{}");
+    return {
+      wins: Math.max(0, Number(parsed.wins) || 0),
+      losses: Math.max(0, Number(parsed.losses) || 0),
+      streak: Math.max(0, Number(parsed.streak) || 0),
+      matches: Math.max(0, Number(parsed.matches) || 0)
+    };
+  } catch (e) {
+    return { wins: 0, losses: 0, streak: 0, matches: 0 };
+  }
+}
+
+function loadUnlockedTitles() {
+  try {
+    const arr = JSON.parse(localStorage.getItem("smash_unlocked_titles") || "[\"rookie\"]");
+    const valid = Array.isArray(arr) ? arr.filter(id => !!TITLE_CATALOG[id]) : [];
+    if (!valid.includes("rookie")) valid.unshift("rookie");
+    return valid;
+  } catch (e) {
+    return ["rookie"];
+  }
+}
+
+let myRating = loadPlayerRating();
+let myPeakRating = loadPeakRating(myRating);
+let myStats = loadPlayerStats();
+let unlockedTitles = loadUnlockedTitles();
+let equippedTitle = localStorage.getItem("smash_equipped_title") || "rookie";
+if (!unlockedTitles.includes(equippedTitle)) equippedTitle = "rookie";
+
+let rankedQueueEntries = {}; // role -> { role, name, rating, title, queuedAt, lastOpponentRole }
+let isInRankedQueue = false;
+let rankedQueuedSinceMs = 0;
+let lastRankedOpponentRole = 0;
+let activeRankedPair = null; // { a: role, b: role, stageKey }
+let rankedMatchTimerId = null;
+
+function saveRatingAndTitles() {
+  myPeakRating = Math.max(myPeakRating, myRating);
+  localStorage.setItem("smash_player_rating", String(myRating));
+  localStorage.setItem("smash_peak_rating", String(myPeakRating));
+  localStorage.setItem("smash_player_stats", JSON.stringify(myStats));
+  localStorage.setItem("smash_unlocked_titles", JSON.stringify(unlockedTitles));
+  localStorage.setItem("smash_equipped_title", equippedTitle);
+  syncTitleUnlockConditions();
+  rebuildTitleSelectOptions();
+  updateRatingBadge();
+}
+
+function unlockTitleIfNeeded(titleId, newlyUnlockedList) {
+  if (!TITLE_CATALOG[titleId]) return;
+  if (!unlockedTitles.includes(titleId)) {
+    unlockedTitles.push(titleId);
+    if (newlyUnlockedList) newlyUnlockedList.push(titleId);
+  }
+}
+
+function syncTitleUnlockConditions() {
+  const newly = [];
+  if (myStats.wins >= 1) unlockTitleIfNeeded("first_win", newly);
+  if (myStats.streak >= 3) unlockTitleIfNeeded("streak_3", newly);
+  if (myStats.streak >= 5) unlockTitleIfNeeded("streak_5", newly);
+  if (myRating >= 1550 || myPeakRating >= 1550) unlockTitleIfNeeded("rp_1550", newly);
+  if (myRating >= 1600 || myPeakRating >= 1600) unlockTitleIfNeeded("rp_1600", newly);
+  if (myRating >= 1700 || myPeakRating >= 1700) unlockTitleIfNeeded("rp_1700", newly);
+  if (myRating >= 1800 || myPeakRating >= 1800) unlockTitleIfNeeded("rp_1800", newly);
+  if (myPeakRating >= 1650) unlockTitleIfNeeded("peak_breaker", newly);
+  if (myStats.wins >= 10) unlockTitleIfNeeded("veteran_10w", newly);
+  if (myStats.matches >= 20) unlockTitleIfNeeded("veteran_20m", newly);
+  if (newly.length > 0) {
+    equippedTitle = newly[newly.length - 1];
+    localStorage.setItem("smash_unlocked_titles", JSON.stringify(unlockedTitles));
+    localStorage.setItem("smash_equipped_title", equippedTitle);
+  }
+}
+
+function rebuildTitleSelectOptions() {
+  if (!titleSelectEl) return;
+  titleSelectEl.innerHTML = "";
+  unlockedTitles.forEach(id => {
+    const meta = getTitleMeta(id);
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = meta.label;
+    titleSelectEl.appendChild(opt);
+  });
+  if (!unlockedTitles.includes(equippedTitle)) {
+    equippedTitle = "rookie";
+  }
+  titleSelectEl.value = equippedTitle;
+  renderTitleBannerElement(equippedTitleBannerEl, equippedTitle);
+}
+
+titleSelectEl.addEventListener("change", () => {
+  if (unlockedTitles.includes(titleSelectEl.value)) {
+    equippedTitle = titleSelectEl.value;
+    localStorage.setItem("smash_equipped_title", equippedTitle);
+    renderTitleBannerElement(equippedTitleBannerEl, equippedTitle);
+    sendProfileSync();
+    updateRankedQueueUI();
+    updateRoomStatusBox();
+  }
+});
+
+function updateRatingBadge() {
+  if (!ratingBadgeEl) return;
+  ratingBadgeEl.textContent = `🏅 ${myRating} RP (最高 ${myPeakRating})`;
+  renderTitleBannerElement(equippedTitleBannerEl, equippedTitle);
+}
 
 function buildSmashWebSocketUrl(passphrase) {
   const host = location.host;
@@ -1143,12 +1368,20 @@ function sanitizePassphrase(raw) {
 
 const initialUrlParams = new URLSearchParams(location.search);
 let currentPassphrase = sanitizePassphrase(initialUrlParams.get("room") || "");
-passphraseInputEl.value = currentPassphrase;
+passphraseInputEl.value = currentPassphrase === RANKED_ROOM_ID ? "" : currentPassphrase;
 
 let isPracticeMode = false;
 let isPracticeStopped = false;
 let practiceBotChar = "fighter";
 let practiceBotLevel = 5;
+
+function isRankedRoom() {
+  return !isPracticeMode && currentPassphrase === RANKED_ROOM_ID;
+}
+
+function isUltimatesDisabled() {
+  return isRankedRoom();
+}
 
 function isPublicLobbyRoom() {
   return !isPracticeMode && !currentPassphrase;
@@ -1162,6 +1395,7 @@ function syncTopDescriptionsVisibility() {
 
 function getRoomCapacity() {
   if (isPracticeMode) return 2;
+  if (isRankedRoom()) return MAX_RANKED_ROOM_PLAYERS;
   return isPublicLobbyRoom() ? MAX_LOBBY_PLAYERS : MAX_BATTLE_PLAYERS;
 }
 
@@ -1362,7 +1596,7 @@ function handleHammerIncomingHit(entity, wasSmash, wasLight, nowMs = performance
 }
 
 function addUltimateGauge(entity, amount) {
-  if (!entity || amount <= 0) return;
+  if (!entity || amount <= 0 || isUltimatesDisabled()) return;
   entity.ultGauge = Math.min(ULTIMATE_MAX_GAUGE, Math.max(0, Number(entity.ultGauge) || 0) + amount);
 }
 
@@ -1560,15 +1794,24 @@ chatInputEl.addEventListener("keydown", e => {
   }
 });
 
-function initDropdownOptions() {
+function rebuildStageDropdownOptions() {
+  const allowedKeys = isRankedRoom() ? RANKED_STAGE_KEYS : Object.keys(STAGES);
+  if (!allowedKeys.includes(currentStageKey)) {
+    currentStageKey = allowedKeys[0] || "battlefield";
+  }
   stageSelectEl.innerHTML = "";
-  Object.keys(STAGES).forEach(key => {
-    const opt1 = document.createElement("option");
-    opt1.value = key;
-    opt1.textContent = STAGES[key].name;
-    stageSelectEl.appendChild(opt1);
+  allowedKeys.forEach(key => {
+    if (!STAGES[key]) return;
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = STAGES[key].name;
+    stageSelectEl.appendChild(opt);
   });
   stageSelectEl.value = currentStageKey;
+}
+
+function initDropdownOptions() {
+  rebuildStageDropdownOptions();
 
   charSelectDropdown.innerHTML = "";
   practiceBotCharSelect.innerHTML = "";
@@ -1605,6 +1848,8 @@ function makePlayer(roleNum, charKey) {
     role: roleNum,
     name: `Player${roleNum}`,
     color: sanitizeColorHex(PLAYER_COLORS[roleNum], roleNum),
+    rating: DEFAULT_RATING,
+    title: "rookie",
     active: false,
     spectator: false,
     isBot: false,
@@ -1658,8 +1903,19 @@ for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
   players[r] = makePlayer(r, "fighter");
 }
 
+function getRankedMatchRoles() {
+  if (activeRankedPair && activeRankedPair.a && activeRankedPair.b) {
+    return [Number(activeRankedPair.a), Number(activeRankedPair.b)].filter(r => r >= 1 && r <= MAX_BATTLE_PLAYERS);
+  }
+  return [];
+}
+
 function isRoleSpectating(r) {
   if (isPracticeMode) return false;
+  if (isRankedRoom() && phase === "playing") {
+    const pairRoles = getRankedMatchRoles();
+    if (pairRoles.length === 2 && !pairRoles.includes(r)) return true;
+  }
   if (r === myRole && isSpectator) return true;
   if (spectatorRoles.has(r)) return true;
   return !!(players[r] && players[r].spectator);
@@ -1667,6 +1923,10 @@ function isRoleSpectating(r) {
 
 function getParticipantRoles() {
   if (isPracticeMode) return [1, 2];
+  if (isRankedRoom() && phase === "playing") {
+    const pairRoles = getRankedMatchRoles();
+    if (pairRoles.length === 2) return pairRoles;
+  }
   return activeRoles.filter(r => !isRoleSpectating(r));
 }
 
@@ -1679,6 +1939,28 @@ function getDisplayNameOfRole(roleNum) {
   const p = players[roleNum];
   if (p && p.name) return p.name;
   return `Player${roleNum}`;
+}
+
+function getRatingOfRole(roleNum) {
+  if (roleNum === myRole) return myRating;
+  if (rankedQueueEntries[roleNum] && typeof rankedQueueEntries[roleNum].rating === "number") {
+    return rankedQueueEntries[roleNum].rating;
+  }
+  if (players[roleNum] && typeof players[roleNum].rating === "number") {
+    return players[roleNum].rating;
+  }
+  return DEFAULT_RATING;
+}
+
+function getTitleOfRole(roleNum) {
+  if (roleNum === myRole) return equippedTitle;
+  if (rankedQueueEntries[roleNum] && rankedQueueEntries[roleNum].title) {
+    return rankedQueueEntries[roleNum].title;
+  }
+  if (players[roleNum] && players[roleNum].title) {
+    return players[roleNum].title;
+  }
+  return "rookie";
 }
 
 function getColorOfRole(roleNum) {
@@ -1733,10 +2015,234 @@ function sendProfileSync() {
       role: myRole,
       name: sanitizePlayerName(myName, myRole),
       color: sanitizeColorHex(myColor, myRole),
+      rating: myRating,
+      title: equippedTitle,
       spectator: isSpectator
     }));
   }
 }
+
+function getAllowedDiffForWaitMs(waitMs) {
+  if (waitMs < 15000) return 100;
+  if (waitMs < 30000) return 250;
+  if (waitMs < 50000) return 500;
+  return Infinity;
+}
+
+function updateRankedQueueUI() {
+  if (!rankedQueueRow) return;
+  const show = isRankedRoom() && !entryBlockedByHost && !isRoomFullBlocked;
+  rankedQueueRow.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  const entries = Object.values(rankedQueueEntries).filter(e => e && activeRoles.includes(e.role));
+  const waitSec = isInRankedQueue && rankedQueuedSinceMs > 0
+    ? Math.max(0, Math.floor((performance.now() - rankedQueuedSinceMs) / 1000))
+    : 0;
+  const allowedDiff = getAllowedDiffForWaitMs(waitSec * 1000);
+  const diffLabel = Number.isFinite(allowedDiff) ? `±${allowedDiff} RP` : "制限なし";
+
+  rankedQueueToggleBtn.disabled = phase === "playing" || phase === "countdown";
+  rankedQueueToggleBtn.classList.toggle("ready-active", isInRankedQueue);
+  rankedQueueToggleBtn.classList.toggle("success", !isInRankedQueue);
+  rankedQueueToggleBtn.textContent = isInRankedQueue ? "✖ マッチング中止" : "🎯 ランダムマッチ開始";
+
+  if (phase === "playing" && activeRankedPair) {
+    const nA = getDisplayNameOfRole(activeRankedPair.a);
+    const nB = getDisplayNameOfRole(activeRankedPair.b);
+    rankedQueueStatusEl.textContent = `⚔️ 1on1対戦中：${nA} VS ${nB}（ストック3・必殺なし）`;
+  } else {
+    rankedQueueStatusEl.textContent = isInRankedQueue
+      ? `🔍 相手探索中（経過 ${waitSec}秒・許容差 ${diffLabel}）・待機 ${entries.length}人`
+      : `待機中：${entries.length}人（最大${MAX_RANKED_ROOM_PLAYERS}人部屋・1on1近レート優先）`;
+  }
+
+  if (rankedRosterPreviewEl) {
+    const previews = activeRoles.slice(0, 8).map(r => {
+      const nm = getDisplayNameOfRole(r);
+      const rp = getRatingOfRole(r);
+      const tm = getTitleMeta(getTitleOfRole(r));
+      const qMark = rankedQueueEntries[r] ? "🎯" : "";
+      return `${qMark}${nm}[${rp}RP/${tm.label}]`;
+    });
+    rankedRosterPreviewEl.textContent = previews.length > 0 ? `参加者：${previews.join("・")}` : "";
+  }
+}
+
+function broadcastRankedQueueState() {
+  if (!isRankedRoom() || !ws || ws.readyState !== WebSocket.OPEN || myRole === 0) return;
+  ws.send(JSON.stringify({
+    type: "ranked_queue",
+    role: myRole,
+    queued: isInRankedQueue,
+    name: sanitizePlayerName(myName, myRole),
+    rating: myRating,
+    title: equippedTitle,
+    lastOpponentRole
+  }));
+}
+
+function attemptNearestRatingMatch() {
+  if (!isRankedRoom() || phase === "playing" || phase === "countdown") return;
+  if (!isInRankedQueue || myRole === 0) return;
+
+  const nowMs = performance.now();
+  const myWaitMs = rankedQueuedSinceMs > 0 ? Math.max(0, nowMs - rankedQueuedSinceMs) : 0;
+  const myMaxDiff = getAllowedDiffForWaitMs(myWaitMs);
+
+  const candidates = Object.values(rankedQueueEntries)
+    .filter(e => e && e.role !== myRole && activeRoles.includes(e.role));
+
+  if (candidates.length === 0) return;
+
+  let bestCandidate = null;
+  let bestScore = Infinity;
+
+  for (const cand of candidates) {
+    const candWaitMs = cand.queuedAt ? Math.max(0, nowMs - cand.queuedAt) : 0;
+    const candMaxDiff = getAllowedDiffForWaitMs(candWaitMs);
+    const effectiveMaxDiff = Math.max(myMaxDiff, candMaxDiff);
+    const diff = Math.abs(myRating - (Number(cand.rating) || DEFAULT_RATING));
+    if (diff > effectiveMaxDiff) continue;
+
+    const repeatPenalty = (cand.role === lastRankedOpponentRole || cand.lastOpponentRole === myRole) ? 180 : 0;
+    const score = diff + repeatPenalty;
+    if (score < bestScore) {
+      bestScore = score;
+      bestCandidate = cand;
+    }
+  }
+
+  if (!bestCandidate) return;
+
+  const stagePool = RANKED_STAGE_KEYS;
+  const chosenStage = stagePool[Math.floor(Math.random() * stagePool.length)] || "battlefield";
+  const pairObj = { a: myRole, b: bestCandidate.role, stageKey: chosenStage };
+
+  isInRankedQueue = false;
+  rankedQueuedSinceMs = 0;
+  delete rankedQueueEntries[myRole];
+  delete rankedQueueEntries[bestCandidate.role];
+  lastRankedOpponentRole = bestCandidate.role;
+  activeRankedPair = pairObj;
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "ranked_matched",
+      pair: pairObj,
+      initiatorRole: myRole
+    }));
+  }
+
+  startRankedPairMatch(pairObj);
+}
+
+function startRankedPairMatch(pairObj) {
+  if (!isRankedRoom() || !pairObj) return;
+  const roleA = Number(pairObj.a);
+  const roleB = Number(pairObj.b);
+  if (!roleA || !roleB || roleA === roleB) return;
+
+  clearTimers();
+  activeRankedPair = { a: roleA, b: roleB, stageKey: pairObj.stageKey || "battlefield" };
+  currentStageKey = RANKED_STAGE_KEYS.includes(activeRankedPair.stageKey) ? activeRankedPair.stageKey : "battlefield";
+  stageSelectEl.value = currentStageKey;
+  gameMode = "ffa";
+  isInRankedQueue = false;
+  rankedQueuedSinceMs = 0;
+  delete rankedQueueEntries[roleA];
+  delete rankedQueueEntries[roleB];
+
+  const amIInMatch = (myRole === roleA || myRole === roleB);
+  isSpectator = !amIInMatch;
+  if (amIInMatch) {
+    const oppRole = (myRole === roleA) ? roleB : roleA;
+    lastRankedOpponentRole = oppRole;
+    spectatorRoles.clear();
+    readyRoles = new Set([roleA, roleB]);
+  } else {
+    spectatorRoles.add(myRole);
+  }
+
+  phase = "playing";
+  clearChatMessages();
+  matchStartedAt = performance.now();
+  winnerInfo = null;
+  gameOverSent = false;
+
+  resetPlayersForNewMatch();
+  syncActivePlayersFromRoles();
+
+  if (players[roleA]) {
+    players[roleA].active = true;
+    players[roleA].spectator = false;
+    players[roleA].stocks = MAX_STOCK;
+    players[roleA].rating = getRatingOfRole(roleA);
+    players[roleA].title = getTitleOfRole(roleA);
+  }
+  if (players[roleB]) {
+    players[roleB].active = true;
+    players[roleB].spectator = false;
+    players[roleB].stocks = MAX_STOCK;
+    players[roleB].rating = getRatingOfRole(roleB);
+    players[roleB].title = getTitleOfRole(roleB);
+  }
+
+  if (amIInMatch && myRole !== 0 && players[myRole]) {
+    players[myRole].charKey = selectedChar;
+    players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
+    players[myRole].mp = MAX_MP;
+    players[myRole].name = sanitizePlayerName(myName, myRole);
+    players[myRole].color = sanitizeColorHex(myColor, myRole);
+    players[myRole].rating = myRating;
+    players[myRole].title = equippedTitle;
+    sendCharChange();
+    sendProfileSync();
+    sendMyState(players[myRole], true);
+  }
+
+  updateRankedQueueUI();
+  updateLoopUI();
+  updateRoomStatusBox();
+  updateStatusByPhase();
+}
+
+rankedQueueToggleBtn.addEventListener("click", () => {
+  if (!isRankedRoom() || phase === "playing" || phase === "countdown" || myRole === 0) return;
+  if (isInRankedQueue) {
+    isInRankedQueue = false;
+    rankedQueuedSinceMs = 0;
+    delete rankedQueueEntries[myRole];
+    broadcastRankedQueueState();
+    updateRankedQueueUI();
+    updateRoomStatusBox();
+    updateStatusByPhase();
+  } else {
+    isInRankedQueue = true;
+    rankedQueuedSinceMs = performance.now();
+    rankedQueueEntries[myRole] = {
+      role: myRole,
+      name: sanitizePlayerName(myName, myRole),
+      rating: myRating,
+      title: equippedTitle,
+      queuedAt: rankedQueuedSinceMs,
+      lastOpponentRole
+    };
+    broadcastRankedQueueState();
+    attemptNearestRatingMatch();
+    updateRankedQueueUI();
+    updateRoomStatusBox();
+    updateStatusByPhase();
+  }
+});
+
+setInterval(() => {
+  if (!isRankedRoom()) return;
+  if (isInRankedQueue && phase !== "playing" && phase !== "countdown") {
+    attemptNearestRatingMatch();
+  }
+  updateRankedQueueUI();
+}, 1000);
 
 function renderColorPalette() {
   const taken = getTakenColorsByOthers();
@@ -1801,8 +2307,13 @@ function applyPlayerName(rawName, reconnectIfNeeded = false) {
   gateNameInput.value = myName;
   inlineNameInput.value = myName;
   if (myRole !== 0 && players[myRole]) players[myRole].name = myName;
+  if (isInRankedQueue && myRole !== 0 && rankedQueueEntries[myRole]) {
+    rankedQueueEntries[myRole].name = myName;
+    broadcastRankedQueueState();
+  }
   updateRoomStatusBox();
   updateStatusByPhase();
+  updateRankedQueueUI();
   if (reconnectIfNeeded && !ws && !isPracticeMode) {
     connectToPassphrase(currentPassphrase, false);
   } else {
@@ -1825,11 +2336,13 @@ inlineNameInput.addEventListener("keydown", e => {
 
 function updatePassphraseUI() {
   syncTopDescriptionsVisibility();
+  rebuildStageDropdownOptions();
   if (isPracticeMode) {
     const stopTag = isPracticeStopped ? "・⏸ ストップ中" : "";
     currentPassphraseBadgeEl.textContent = `🤖 練習場（CPU Lv.${practiceBotLevel}${stopTag}）`;
     practiceControlRow.classList.remove("hidden");
     practiceBotRow.classList.remove("hidden");
+    rankedQueueRow.classList.add("hidden");
     colorRow.classList.add("hidden");
     mapStepRow.classList.remove("hidden");
     charStepRow.classList.remove("hidden");
@@ -1839,13 +2352,18 @@ function updatePassphraseUI() {
 
   practiceControlRow.classList.add("hidden");
   practiceBotRow.classList.add("hidden");
-  currentPassphraseBadgeEl.textContent = currentPassphrase
-    ? `合言葉「${currentPassphrase}」（最大4人）`
-    : `ロビー節名：${LOBBY_SECTION_NAME}（最大${MAX_LOBBY_PLAYERS}人）`;
+  if (isRankedRoom()) {
+    currentPassphraseBadgeEl.textContent = `🏆 レート戦ロビー（最大${MAX_RANKED_ROOM_PLAYERS}人・1on1近レートマッチ・戦場/終点・ストック3・必殺なし）`;
+  } else {
+    currentPassphraseBadgeEl.textContent = currentPassphrase
+      ? `合言葉「${currentPassphrase}」（最大4人）`
+      : `ロビー節名：${LOBBY_SECTION_NAME}（最大${MAX_LOBBY_PLAYERS}人）`;
+  }
   const isLobby = isPublicLobbyRoom();
   colorRow.classList.toggle("hidden", isLobby);
-  mapStepRow.classList.toggle("hidden", isLobby);
+  mapStepRow.classList.toggle("hidden", isLobby || isRankedRoom());
   charStepRow.classList.toggle("hidden", isLobby);
+  updateRankedQueueUI();
   renderColorPalette();
   updateChatVisibility();
 }
@@ -1866,7 +2384,7 @@ function pruneGhostRoles(list) {
 }
 
 function isHostPresentInList(list) {
-  if (isPublicLobbyRoom() || isPracticeMode) return true;
+  if (isPublicLobbyRoom() || isPracticeMode || isRankedRoom()) return true;
   const roles = pruneGhostRoles(list);
   if (roles.length === 0) return false;
   if (fixedHostThisPc && myRole !== 0 && roles.includes(myRole)) return true;
@@ -1874,11 +2392,18 @@ function isHostPresentInList(list) {
 }
 
 function getCurrentStage() {
+  if (isRankedRoom() && !RANKED_STAGE_KEYS.includes(currentStageKey)) {
+    return STAGES.battlefield;
+  }
   return STAGES[currentStageKey] || STAGES.battlefield;
 }
 
 function getSpawnPoint(roleNum) {
   const st = getCurrentStage();
+  if (isRankedRoom() && activeRankedPair) {
+    if (roleNum === activeRankedPair.a) return st.spawns[1] || st.spawns[1];
+    if (roleNum === activeRankedPair.b) return st.spawns[2] || st.spawns[2];
+  }
   return (st.spawns && st.spawns[roleNum]) || st.spawns[1];
 }
 
@@ -1951,6 +2476,7 @@ function getTeamOfRole(role) {
 
 function isSameTeam(roleA, roleB) {
   if (isPracticeMode) return roleA === roleB;
+  if (isRankedRoom()) return false;
   if (gameMode !== "team2v2") return false;
   return getTeamOfRole(roleA) === getTeamOfRole(roleB);
 }
@@ -2044,6 +2570,16 @@ function syncActivePlayersFromRoles() {
     for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) players[r].active = false;
     return;
   }
+  if (isRankedRoom()) {
+    const pairRoles = getRankedMatchRoles();
+    for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
+      const inPair = phase === "playing" && pairRoles.includes(r) && activeRoles.includes(r);
+      players[r].spectator = !inPair;
+      players[r].isBot = false;
+      players[r].active = inPair;
+    }
+    return;
+  }
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
     const inRoom = !entryBlockedByHost && !isRoomFullBlocked && activeRoles.includes(r);
     players[r].spectator = spectatorRoles.has(r) || (r === myRole && isSpectator);
@@ -2070,7 +2606,7 @@ function resetPlayersForNewMatch() {
 
 function isHost() {
   if (isPracticeMode) return true;
-  if (isPublicLobbyRoom()) return false;
+  if (isPublicLobbyRoom() || isRankedRoom()) return false;
   if (entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0 || activeRoles.length === 0) return false;
   if (fixedHostThisPc) return true;
   return myRole === 1;
@@ -2078,7 +2614,7 @@ function isHost() {
 
 function isRoleHost(r) {
   if (isPracticeMode) return r === 1;
-  if (isPublicLobbyRoom()) return false;
+  if (isPublicLobbyRoom() || isRankedRoom()) return false;
   if (isRoleSpectating(r)) return false;
   if (fixedHostThisPc && r === myRole && !entryBlockedByHost && !isRoomFullBlocked) return true;
   return r === 1 && activeRoles.includes(1);
@@ -2088,9 +2624,10 @@ function areAllPlayersReady() {
   if (isPracticeMode) {
     return readyRoles.has(1) && readyRoles.has(2);
   }
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return false;
+  if (isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked) return false;
   const participants = getParticipantRoles();
-  if (participants.length < 1) return false;
+  const minRequired = 1;
+  if (participants.length < minRequired) return false;
   return participants.every(r => readyRoles.has(r));
 }
 
@@ -2112,6 +2649,10 @@ function enterPracticeModeSteps() {
 
   isPracticeMode = true;
   isPracticeStopped = false;
+  isInRankedQueue = false;
+  rankedQueuedSinceMs = 0;
+  rankedQueueEntries = {};
+  activeRankedPair = null;
   isRoomFullBlocked = false;
   entryBlockedByHost = false;
   isSpectator = false;
@@ -2142,6 +2683,26 @@ function enterPracticeModeSteps() {
   updateRoomStatusBox();
   updateStatusByPhase();
 }
+
+function enterRankedRoom() {
+  if (!hasEnteredLobby) {
+    hasEnteredLobby = true;
+    nameGateOverlay.classList.add("hidden");
+  }
+  gameMode = "ffa";
+  isInRankedQueue = false;
+  rankedQueuedSinceMs = 0;
+  rankedQueueEntries = {};
+  activeRankedPair = null;
+  if (!RANKED_STAGE_KEYS.includes(currentStageKey)) {
+    currentStageKey = "battlefield";
+  }
+  connectToPassphrase(RANKED_ROOM_ID, false);
+}
+
+openRankedBtn.addEventListener("click", () => {
+  enterRankedRoom();
+});
 
 function resetPracticeToMapSelect() {
   if (!isPracticeMode) return;
@@ -2256,12 +2817,14 @@ function updateLoopUI() {
   if (isPracticeMode) {
     practiceControlRow.classList.remove("hidden");
     practiceBotRow.classList.remove("hidden");
+    rankedQueueRow.classList.add("hidden");
     mapStepRow.classList.remove("hidden");
     charStepRow.classList.remove("hidden");
     colorRow.classList.add("hidden");
     roomProfileRow.classList.remove("disabled-area");
     inlineNameInput.disabled = false;
     saveInlineNameBtn.disabled = false;
+    titleSelectEl.disabled = false;
 
     const inBattle = (phase === "playing" || phase === "gameover");
     practiceStopBtn.disabled = !(phase === "playing" && !isPracticeStopped);
@@ -2304,32 +2867,40 @@ function updateLoopUI() {
   practiceBotRow.classList.add("hidden");
 
   if (isPublicLobbyRoom()) {
+    rankedQueueRow.classList.add("hidden");
     mapStepRow.classList.add("hidden");
     charStepRow.classList.add("hidden");
     colorRow.classList.add("hidden");
     roomProfileRow.classList.remove("disabled-area");
     inlineNameInput.disabled = false;
     saveInlineNameBtn.disabled = false;
+    titleSelectEl.disabled = false;
     updateChatVisibility();
     return;
   }
 
-  colorRow.classList.remove("hidden");
-  mapStepRow.classList.remove("hidden");
-  charStepRow.classList.remove("hidden");
-
+  const ranked = isRankedRoom();
   const inBattleOrResult = (phase === "playing" || phase === "gameover");
   const lockedOut = entryBlockedByHost || isRoomFullBlocked;
+
+  colorRow.classList.remove("hidden");
+  mapStepRow.classList.toggle("hidden", ranked);
+  charStepRow.classList.toggle("hidden", ranked && phase !== "playing");
+  if (ranked) {
+    charStepRow.classList.add("hidden");
+  }
+
   roomProfileRow.classList.toggle("disabled-area", inBattleOrResult || lockedOut);
   inlineNameInput.disabled = inBattleOrResult || lockedOut;
   saveInlineNameBtn.disabled = inBattleOrResult || lockedOut;
+  titleSelectEl.disabled = inBattleOrResult || lockedOut;
 
   const host = isHost();
   const canEditMap = !lockedOut && !inBattleOrResult && host;
   stageSelectEl.value = currentStageKey;
-  modeSelectEl.value = gameMode;
+  modeSelectEl.value = ranked ? "ffa" : gameMode;
   stageSelectEl.disabled = !canEditMap;
-  modeSelectEl.disabled = !canEditMap;
+  modeSelectEl.disabled = ranked || !canEditMap;
   confirmMapBtn.disabled = !canEditMap || phase !== "map_select";
   confirmMapBtn.textContent = phase === "map_select" ? "このマップでキャラ選択へ" : "マップ確定済";
   hostLockBtn.disabled = lockedOut || isSpectator || inBattleOrResult;
@@ -2356,6 +2927,7 @@ function updateLoopUI() {
     ? `全員完了！ 開始まで ${countdownLeft} 秒`
     : `完了：${validReadyCount}/${participants.length}人`;
 
+  updateRankedQueueUI();
   renderColorPalette();
   updateChatVisibility();
 }
@@ -2379,32 +2951,44 @@ function updateRoomStatusBox() {
   }
 
   const cap = getRoomCapacity();
+  const roomTitle = isRankedRoom()
+    ? `🏆 レート戦ロビー（${myRating} RP・最高 ${myPeakRating} RP・ストック3・必殺なし）`
+    : `合言葉「${currentPassphrase}」`;
   if (isRoomFullBlocked) {
-    roomStatusEl.textContent = `【合言葉「${currentPassphrase}」】満員（${MAX_BATTLE_PLAYERS}/${MAX_BATTLE_PLAYERS}人）のため入室できません`;
+    roomStatusEl.textContent = `【${roomTitle}】満員（${cap}/${cap}人）のため入室できません`;
     return;
   }
 
   const phaseLabelMap = {
-    map_select: "①マップ決定中",
+    map_select: isRankedRoom() ? "1on1近レートマッチ待機中" : "①マップ決定中",
     char_select: "②キャラ選択・完了待ち",
     countdown: `③開始カウント(${countdownLeft}秒)`,
-    playing: "④バトル中",
+    playing: isRankedRoom() && activeRankedPair
+      ? `1on1対戦中（${getDisplayNameOfRole(activeRankedPair.a)} VS ${getDisplayNameOfRole(activeRankedPair.b)}）`
+      : "④バトル中",
     gameover: "結果表示中"
   };
 
   const memberList = activeRoles.length > 0
-    ? activeRoles.map(r => {
+    ? activeRoles.slice(0, 12).map(r => {
         const pName = getDisplayNameOfRole(r);
+        if (isRankedRoom()) {
+          const rp = getRatingOfRole(r);
+          const tMeta = getTitleMeta(getTitleOfRole(r));
+          const qMark = rankedQueueEntries[r] ? "[探索中]" : "";
+          const bMark = (phase === "playing" && activeRankedPair && (activeRankedPair.a === r || activeRankedPair.b === r)) ? "[対戦中]" : "";
+          return `${pName}(${rp}RP・${tMeta.label})${qMark}${bMark}`;
+        }
         const specMark = isRoleSpectating(r) ? "[観戦]" : "";
         const hostMark = isRoleHost(r) ? "(ホスト)" : "";
         const readyMark = (!isRoleSpectating(r) && (phase === "char_select" || phase === "countdown"))
           ? (readyRoles.has(r) ? "[完了]" : "[選択中]")
           : "";
         return `${pName}${hostMark}${specMark}${readyMark}`;
-      }).join(" / ")
+      }).join(" / ") + (activeRoles.length > 12 ? ` 他${activeRoles.length - 12}人` : "")
     : "なし";
 
-  roomStatusEl.textContent = `【合言葉「${currentPassphrase}」】${activeRoles.length}/${cap}人（${memberList}） ｜ マップ：${getCurrentStage().name} ｜ 段階：${phaseLabelMap[phase] || phase}`;
+  roomStatusEl.textContent = `【${roomTitle}】${activeRoles.length}/${cap}人（${memberList}） ｜ マップ：${getCurrentStage().name} ｜ 段階：${phaseLabelMap[phase] || phase}`;
 }
 
 function updateStatusByPhase() {
@@ -2428,23 +3012,35 @@ function updateStatusByPhase() {
     return;
   }
 
+  const ranked = isRankedRoom();
+  const roomLabel = ranked ? `🏆 [レート戦 ${myRating}RP]` : `[合言葉:${currentPassphrase}]`;
+
   if (isRoomFullBlocked) {
-    statusEl.textContent = `🚫 [合言葉:${currentPassphrase}] 満員（${MAX_BATTLE_PLAYERS}/${MAX_BATTLE_PLAYERS}人）のため入れません`;
+    statusEl.textContent = `🚫 ${roomLabel} 満員（${getRoomCapacity()}/${getRoomCapacity()}人）のため入れません`;
     return;
   }
 
-  const roomLabel = `[合言葉:${currentPassphrase}]`;
   const hostLabel = isHost() ? "★ホスト" : "";
   const specPrefix = isSpectator ? "👀【観戦中】" : "";
 
   if (entryBlockedByHost) {
     statusEl.textContent = `🔒 ホスト入室待ち ${roomLabel}`;
+  } else if (ranked) {
+    if (phase === "playing" && activeRankedPair) {
+      const nA = getDisplayNameOfRole(activeRankedPair.a);
+      const nB = getDisplayNameOfRole(activeRankedPair.b);
+      statusEl.textContent = `${specPrefix}${roomLabel} 1on1対戦中（${getCurrentStage().name}・ストック3・必殺なし）！ ${nA} VS ${nB}`;
+    } else if (isInRankedQueue) {
+      statusEl.textContent = `${roomLabel} ${displayMyName} ｜ 🔍 近いレートの相手を検索中...`;
+    } else {
+      statusEl.textContent = `${roomLabel} ${displayMyName} ｜ 「🎯 ランダムマッチ開始」で1on1対戦相手を探せます`;
+    }
   } else if (phase === "map_select") {
     statusEl.textContent = isHost()
       ? `${roomLabel} ${displayMyName} ${hostLabel}｜ マップを選んで「このマップでキャラ選択へ」を押してください`
       : `${roomLabel} ${displayMyName} ${hostLabel}｜ ホストがマップを選んでいます...`;
   } else if (phase === "char_select") {
-    statusEl.textContent = `${roomLabel} ${displayMyName} ${hostLabel}｜ キャラを選んで「✅ 完了にする」を押してください（全員完了で10秒カウント）`;
+    statusEl.textContent = `${roomLabel} ${displayMyName} ${hostLabel}｜ キャラを選んで「✅ 完了にする」を押してください`;
   } else if (phase === "countdown") {
     statusEl.textContent = `${roomLabel} 全員完了！ 試合開始まであと ${countdownLeft} 秒（マップ：${getCurrentStage().name}）`;
   } else if (phase === "playing") {
@@ -2453,7 +3049,7 @@ function updateStatusByPhase() {
 }
 
 function sendLoopStateSync(extra = {}) {
-  if (isPracticeMode || isPublicLobbyRoom() || !ws || ws.readyState !== WebSocket.OPEN || entryBlockedByHost || isRoomFullBlocked || myRole === 0) return;
+  if (isPracticeMode || isPublicLobbyRoom() || isRankedRoom() || !ws || ws.readyState !== WebSocket.OPEN || entryBlockedByHost || isRoomFullBlocked || myRole === 0) return;
   ws.send(JSON.stringify({
     type: "loop_sync",
     phase,
@@ -2484,7 +3080,12 @@ function enterMapSelectPhase(broadcast = false) {
   }
   if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
+  activeRankedPair = null;
   promoteSpectatorsToParticipants();
+  if (isRankedRoom()) {
+    gameMode = "ffa";
+    if (!RANKED_STAGE_KEYS.includes(currentStageKey)) currentStageKey = "battlefield";
+  }
   phase = "map_select";
   readyRoles.clear();
   winnerInfo = null;
@@ -2522,7 +3123,7 @@ function enterCharSelectPhase(broadcast = false) {
     updateStatusByPhase();
     return;
   }
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   clearTimers();
   promoteSpectatorsToParticipants();
   phase = "char_select";
@@ -2573,7 +3174,7 @@ function startTenSecondCountdown() {
     return;
   }
 
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   if (phase === "countdown" || phase === "playing" || phase === "gameover") return;
   clearTimers();
   promoteSpectatorsToParticipants();
@@ -2613,7 +3214,7 @@ function checkAllReadyAndStartCountdown() {
     return;
   }
 
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   syncReadyRolesToActive();
   updateLoopUI();
   updateRoomStatusBox();
@@ -2691,7 +3292,7 @@ function startBattlePhase() {
 }
 
 function setMode(newMode, broadcastChange = true) {
-  if (isPracticeMode || isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+  if (isPracticeMode || isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked) return;
   if (phase === "playing" || phase === "gameover") return;
   if (broadcastChange && !isHost()) return;
   gameMode = newMode;
@@ -2705,6 +3306,7 @@ function setMode(newMode, broadcastChange = true) {
 
 function setStage(newStageKey, broadcastChange = true) {
   if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || !STAGES[newStageKey]) return;
+  if (isRankedRoom() && !RANKED_STAGE_KEYS.includes(newStageKey)) return;
   if (phase === "playing" || phase === "gameover") return;
   if (!isPracticeMode && broadcastChange && !isHost()) return;
   currentStageKey = newStageKey;
@@ -2728,7 +3330,7 @@ stageSelectEl.addEventListener("change", () => setStage(stageSelectEl.value, tru
 modeSelectEl.addEventListener("change", () => setMode(modeSelectEl.value, true));
 
 confirmMapBtn.addEventListener("click", () => {
-  if (phase !== "map_select") return;
+  if (phase !== "map_select" || isRankedRoom()) return;
   if (isPracticeMode) {
     setStage(stageSelectEl.value, false);
     enterCharSelectPhase(false);
@@ -2764,7 +3366,7 @@ readyToggleBtn.addEventListener("click", () => {
     return;
   }
 
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
+  if (isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   if (phase !== "char_select" && phase !== "countdown") return;
 
   if (readyRoles.has(myRole)) {
@@ -2784,7 +3386,7 @@ readyToggleBtn.addEventListener("click", () => {
 });
 
 function cleanupGhostRoles() {
-  if (isPracticeMode || isPublicLobbyRoom() || !isHost() || phase === "playing" || phase === "gameover") return;
+  if (isPracticeMode || isPublicLobbyRoom() || isRankedRoom() || !isHost() || phase === "playing" || phase === "gameover") return;
   ghostFilterActive = true;
   activeRoles = pruneGhostRoles(activeRoles);
   spectatorRoles = new Set([...spectatorRoles].filter(r => activeRoles.includes(r)));
@@ -2810,7 +3412,7 @@ function cleanupGhostRoles() {
 resetGhostBtn.addEventListener("click", cleanupGhostRoles);
 
 hostLockBtn.addEventListener("click", () => {
-  if (isPracticeMode || isSpectator || isRoomFullBlocked) return;
+  if (isPracticeMode || isRankedRoom() || isSpectator || isRoomFullBlocked) return;
   fixedHostThisPc = !fixedHostThisPc;
   localStorage.setItem("smash_host_locked", fixedHostThisPc ? "1" : "0");
   if (!isPublicLobbyRoom() && fixedHostThisPc && myRole !== 0) {
@@ -2856,12 +3458,58 @@ function sendCharChange() {
   }
 }
 
+function calcEloDelta(myRp, oppRp, iWon) {
+  const expected = 1 / (1 + Math.pow(10, (oppRp - myRp) / 400));
+  const score = iWon ? 1 : 0;
+  const kFactor = 32;
+  const raw = Math.round(kFactor * (score - expected));
+  if (iWon) return Math.max(6, raw);
+  return Math.min(-6, raw);
+}
+
+function applyRankedResultDelta(info) {
+  if (!isRankedRoom() || isSpectator || myRole === 0 || !info) return null;
+  const pairRoles = getRankedMatchRoles();
+  if (pairRoles.length === 2 && !pairRoles.includes(myRole)) return null;
+
+  const oppRole = pairRoles.find(r => r !== myRole) || 0;
+  const oppRp = oppRole ? getRatingOfRole(oppRole) : DEFAULT_RATING;
+  const iWon = info.winnerRole === myRole;
+  const delta = calcEloDelta(myRating, oppRp, iWon);
+  const prevRating = myRating;
+  const nextRating = Math.max(0, prevRating + delta);
+
+  const me = players[myRole];
+  const opp = oppRole ? players[oppRole] : null;
+  const myMaxPercent = me ? (me.percent || 0) : 0;
+  const oppRemainingStocks = opp ? (opp.stocks || 0) : 0;
+
+  myStats.matches += 1;
+  if (iWon) {
+    myStats.wins += 1;
+    myStats.streak += 1;
+    if (myMaxPercent >= 100) unlockTitleIfNeeded("comeback");
+    if (oppRemainingStocks <= 1) unlockTitleIfNeeded("close_match");
+  } else {
+    myStats.losses += 1;
+    myStats.streak = 0;
+  }
+
+  myRating = nextRating;
+  saveRatingAndTitles();
+  sendProfileSync();
+
+  const actualDelta = nextRating - prevRating;
+  return { iWon, delta: actualDelta, rating: nextRating, peak: myPeakRating };
+}
+
 function finishGame(info) {
   if (phase === "gameover") return;
   clearTimers();
   isPracticeStopped = false;
   phase = "gameover";
-  winnerInfo = info;
+  const rankedResult = applyRankedResultDelta(info);
+  winnerInfo = rankedResult ? { ...info, rankedResult } : info;
   resultSecLeft = RESULT_SECONDS;
   updateLoopUI();
 
@@ -2897,20 +3545,37 @@ function finishGame(info) {
     const winRole = info.winnerRole;
     const winName = getDisplayNameOfRole(winRole);
     headline = `${winName} WIN!`;
-    subline = isSpectator
-      ? "観戦終了！次の試合から参加できます"
-      : ((winRole === myRole) ? "あなたの勝利！🎉" : "ストックが0になりました（負け）");
+    if (isSpectator) {
+      subline = "1on1観戦終了！ロビーへ戻ります";
+    } else if (rankedResult) {
+      const sign = rankedResult.delta >= 0 ? `+${rankedResult.delta}` : `${rankedResult.delta}`;
+      subline = `${rankedResult.iWon ? "勝利！🎉" : "敗北..."} (${sign} RP → ${rankedResult.rating} RP / 最高 ${rankedResult.peak})`;
+    } else {
+      subline = (winRole === myRole) ? "あなたの勝利！🎉" : "ストックが0になりました（負け）";
+    }
   }
 
-  statusEl.textContent = `${headline}（${subline}） ${resultSecLeft}秒後にマップ選択へ戻ります...`;
+  statusEl.textContent = `${headline}（${subline}） ${resultSecLeft}秒後に${isRankedRoom() ? "レート戦ロビー" : "マップ選択"}へ戻ります...`;
 
   countdownTimerId = setInterval(() => {
     resultSecLeft--;
     if (resultSecLeft > 0) {
-      statusEl.textContent = `${headline}（${subline}） ${resultSecLeft}秒後にマップ選択へ戻ります...`;
+      statusEl.textContent = `${headline}（${subline}） ${resultSecLeft}秒後に${isRankedRoom() ? "レート戦ロビー" : "マップ選択"}へ戻ります...`;
     } else {
       clearTimers();
-      enterMapSelectPhase(isHost());
+      if (isRankedRoom()) {
+        activeRankedPair = null;
+        promoteSpectatorsToParticipants();
+        phase = "map_select";
+        resetPlayersForNewMatch();
+        syncActivePlayersFromRoles();
+        updateRankedQueueUI();
+        updateLoopUI();
+        updateRoomStatusBox();
+        updateStatusByPhase();
+      } else {
+        enterMapSelectPhase(isHost());
+      }
     }
   }, 1000);
 }
@@ -2940,7 +3605,7 @@ function checkMatchEndCondition() {
   const participants = getParticipantRoles();
   const alivePlayers = participants.map(r => players[r]).filter(p => p && !isRoleSpectating(p.role) && p.stocks > 0);
 
-  if (gameMode === "team2v2" && !isPracticeMode) {
+  if (gameMode === "team2v2" && !isPracticeMode && !isRankedRoom()) {
     const teamAAlive = alivePlayers.some(p => getTeamOfRole(p.role) === "A");
     const teamBAlive = alivePlayers.some(p => getTeamOfRole(p.role) === "B");
     if (!teamAAlive && teamBAlive) {
@@ -3213,7 +3878,8 @@ function handleRoomFullRejection(cap = MAX_BATTLE_PLAYERS) {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     try { ws.close(); } catch (ignored) {}
   }
-  statusEl.textContent = `🚫 合言葉「${currentPassphrase}」は満員（${cap}/${cap}人）のため入れません`;
+  const roomLabel = isRankedRoom() ? "レート戦ロビー" : `合言葉「${currentPassphrase}」`;
+  statusEl.textContent = `🚫 ${roomLabel}は満員（${cap}/${cap}人）のため入れません`;
 }
 
 function applyRoomSnapshot(rawRoles) {
@@ -3237,6 +3903,10 @@ function applyRoomSnapshot(rawRoles) {
 
   entryBlockedByHost = false;
   activeRoles = nextRoles;
+  Object.keys(rankedQueueEntries).forEach(k => {
+    const rk = Number(k);
+    if (!activeRoles.includes(rk)) delete rankedQueueEntries[rk];
+  });
   spectatorRoles = new Set([...spectatorRoles].filter(r => activeRoles.includes(r)));
   syncReadyRolesToActive();
   syncActivePlayersFromRoles();
@@ -3248,6 +3918,7 @@ function applyRoomSnapshot(rawRoles) {
   if (!isPublicLobbyRoom() && myRole !== 0 && activeRoles.includes(myRole)) {
     sendCharChange();
     sendProfileSync();
+    if (isInRankedQueue) broadcastRankedQueueState();
     if (isHost()) sendLoopStateSync();
   }
 }
@@ -3260,6 +3931,41 @@ function attachSocketHandlers(socket) {
       pushChatMessage(data);
       return;
     }
+    if (data.type === "ranked_queue") {
+      if (!isRankedRoom()) return;
+      const qRole = Number(data.role) || 0;
+      if (!qRole) return;
+      if (data.queued) {
+        rankedQueueEntries[qRole] = {
+          role: qRole,
+          name: sanitizePlayerName(data.name, qRole),
+          rating: Number(data.rating) || DEFAULT_RATING,
+          title: TITLE_CATALOG[data.title] ? data.title : "rookie",
+          queuedAt: performance.now(),
+          lastOpponentRole: Number(data.lastOpponentRole) || 0
+        };
+        if (players[qRole]) {
+          players[qRole].name = rankedQueueEntries[qRole].name;
+          players[qRole].rating = rankedQueueEntries[qRole].rating;
+          players[qRole].title = rankedQueueEntries[qRole].title;
+        }
+        attemptNearestRatingMatch();
+      } else {
+        delete rankedQueueEntries[qRole];
+      }
+      updateRankedQueueUI();
+      updateRoomStatusBox();
+      return;
+    }
+    if (data.type === "ranked_matched") {
+      if (!isRankedRoom() || !data.pair) return;
+      const pA = Number(data.pair.a) || 0;
+      const pB = Number(data.pair.b) || 0;
+      if (!pA || !pB) return;
+      if (phase === "playing" && activeRankedPair) return;
+      startRankedPairMatch(data.pair);
+      return;
+    }
     if (data.type === "role") {
       if (data.full) {
         handleRoomFullRejection(Number(data.maxPlayers) || getRoomCapacity());
@@ -3270,16 +3976,17 @@ function attachSocketHandlers(socket) {
         ? data.roles
         : (assignedRole > 0 ? [...activeRoles, assignedRole] : activeRoles);
       const normalized = pruneGhostRoles(baseList);
+      const cap = getRoomCapacity();
 
-      if (!isPublicLobbyRoom() && (assignedRole <= 0 || assignedRole > MAX_BATTLE_PLAYERS || normalized.length > MAX_BATTLE_PLAYERS)) {
-        handleRoomFullRejection(MAX_BATTLE_PLAYERS);
+      if (!isPublicLobbyRoom() && (assignedRole <= 0 || assignedRole > cap || normalized.length > cap)) {
+        handleRoomFullRejection(cap);
         return;
       }
 
       isRoomFullBlocked = false;
       myRole = assignedRole;
 
-      if (!isPublicLobbyRoom() && !fixedHostThisPc && !isHostPresentInList(normalized)) {
+      if (!isPublicLobbyRoom() && !isRankedRoom() && !fixedHostThisPc && !isHostPresentInList(normalized)) {
         entryBlockedByHost = true;
         activeRoles = [];
         clearTimers();
@@ -3296,7 +4003,7 @@ function attachSocketHandlers(socket) {
       clearTimers();
       readyRoles.clear();
 
-      const joiningMidMatch = (!isPublicLobbyRoom() && (data.phase === "playing" || phase === "playing"));
+      const joiningMidMatch = (!isPublicLobbyRoom() && !isRankedRoom() && (data.phase === "playing" || phase === "playing"));
       if (joiningMidMatch) {
         phase = "playing";
         clearChatMessages();
@@ -3310,17 +4017,21 @@ function attachSocketHandlers(socket) {
 
       syncActivePlayersFromRoles();
       ensureNonConflictingColor();
-      if (!isPublicLobbyRoom() && players[myRole]) {
+      if (!isPublicLobbyRoom() && myRole >= 1 && myRole <= MAX_BATTLE_PLAYERS && players[myRole]) {
         players[myRole].spectator = isSpectator;
         players[myRole].active = !isSpectator;
         players[myRole].name = sanitizePlayerName(myName, myRole);
         players[myRole].color = sanitizeColorHex(myColor, myRole);
+        players[myRole].rating = myRating;
+        players[myRole].title = equippedTitle;
         players[myRole].charKey = selectedChar;
         players[myRole].jumps = getMaxJumpsForPlayer(players[myRole]);
         players[myRole].mp = MAX_MP;
         if (!isSpectator) sendCharChange();
         sendProfileSync();
         if (isHost() && !isSpectator) sendLoopStateSync();
+      } else if (isRankedRoom() && myRole > 0) {
+        sendProfileSync();
       }
       updateLoopUI();
       updateRoomStatusBox();
@@ -3338,11 +4049,22 @@ function attachSocketHandlers(socket) {
         if (typeof data.color === "string" && data.color.trim()) {
           players[pRole].color = sanitizeColorHex(data.color, pRole);
         }
+        if (typeof data.rating === "number") {
+          players[pRole].rating = Math.max(0, Math.floor(data.rating));
+        }
+        if (typeof data.title === "string" && TITLE_CATALOG[data.title]) {
+          players[pRole].title = data.title;
+        }
         if (typeof data.spectator === "boolean") {
           players[pRole].spectator = data.spectator;
           if (data.spectator) spectatorRoles.add(pRole);
           else spectatorRoles.delete(pRole);
         }
+      }
+      if (rankedQueueEntries[pRole]) {
+        if (typeof data.name === "string" && data.name.trim()) rankedQueueEntries[pRole].name = sanitizePlayerName(data.name, pRole);
+        if (typeof data.rating === "number") rankedQueueEntries[pRole].rating = Math.max(0, Math.floor(data.rating));
+        if (typeof data.title === "string" && TITLE_CATALOG[data.title]) rankedQueueEntries[pRole].title = data.title;
       }
       syncActivePlayersFromRoles();
       ensureNonConflictingColor();
@@ -3354,7 +4076,7 @@ function attachSocketHandlers(socket) {
     } else if (data.type === "stage") {
       if (data.stageKey && STAGES[data.stageKey]) setStage(data.stageKey, false);
     } else if (data.type === "loop_sync") {
-      if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+      if (isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked) return;
       if (data.mode === "ffa" || data.mode === "team2v2") {
         gameMode = data.mode;
         modeSelectEl.value = gameMode;
@@ -3395,7 +4117,7 @@ function attachSocketHandlers(socket) {
       updateRoomStatusBox();
       updateStatusByPhase();
     } else if (data.type === "ready_state") {
-      if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
+      if (isPublicLobbyRoom() || isRankedRoom() || entryBlockedByHost || isRoomFullBlocked) return;
       const r = Number(data.role) || 0;
       if (!r || r === myRole || isRoleSpectating(r)) return;
       markPeerActive(r);
@@ -3410,15 +4132,18 @@ function attachSocketHandlers(socket) {
         seenPeerRoles.delete(leftRole);
         readyRoles.delete(leftRole);
         spectatorRoles.delete(leftRole);
+        delete rankedQueueEntries[leftRole];
         const remaining = activeRoles.filter(r => r !== leftRole);
-        delete clones[leftRole];
-        traps = traps.filter(t => t.ownerRole !== leftRole);
-        if (players[leftRole]) {
-          players[leftRole].active = false;
-          players[leftRole].spectator = false;
-          players[leftRole].stocks = 0;
+        if (leftRole <= MAX_BATTLE_PLAYERS) {
+          delete clones[leftRole];
+          traps = traps.filter(t => t.ownerRole !== leftRole);
+          if (players[leftRole]) {
+            players[leftRole].active = false;
+            players[leftRole].spectator = false;
+            players[leftRole].stocks = 0;
+          }
         }
-        if (!isPublicLobbyRoom() && !fixedHostThisPc && !isHostPresentInList(remaining)) {
+        if (!isPublicLobbyRoom() && !isRankedRoom() && !fixedHostThisPc && !isHostPresentInList(remaining)) {
           entryBlockedByHost = true;
           activeRoles = [];
           clearTimers();
@@ -3468,7 +4193,9 @@ function attachSocketHandlers(socket) {
         } else if (!target.critReady) {
           target.critStartedAt = 0;
         }
-        const targetSpec = !!data.player.spectator || spectatorRoles.has(targetRole);
+        const targetSpec = isRankedRoom()
+          ? !(activeRankedPair && (activeRankedPair.a === targetRole || activeRankedPair.b === targetRole))
+          : (!!data.player.spectator || spectatorRoles.has(targetRole));
         target.spectator = targetSpec;
         target.active = !entryBlockedByHost && !(phase === "playing" && targetSpec);
         if (!target.hasClone) delete clones[target.role];
@@ -3526,7 +4253,7 @@ function attachSocketHandlers(socket) {
       if (isPublicLobbyRoom() || phase === "gameover") return;
       if (data.ring && data.ring.ownerRole !== myRole) ringEffects.push(data.ring);
     } else if (data.type === "ult_fx") {
-      if (isPublicLobbyRoom() || phase === "gameover") return;
+      if (isPublicLobbyRoom() || phase === "gameover" || isUltimatesDisabled()) return;
       if (data.fx && data.fx.ownerRole !== myRole) ultEffects.push(data.fx);
     } else if (data.type === "trap_place") {
       if (isPublicLobbyRoom() || phase === "gameover") return;
@@ -3698,14 +4425,31 @@ function connectToPassphrase(nextPassphrase, updateUrl = true) {
   isPracticeMode = false;
   isPracticeStopped = false;
   players[2].isBot = false;
+  isInRankedQueue = false;
+  rankedQueuedSinceMs = 0;
+  rankedQueueEntries = {};
+  activeRankedPair = null;
   currentPassphrase = sanitizePassphrase(nextPassphrase);
-  passphraseInputEl.value = currentPassphrase;
+  if (currentPassphrase !== RANKED_ROOM_ID) {
+    passphraseInputEl.value = currentPassphrase;
+  } else {
+    passphraseInputEl.value = "";
+  }
+  if (isRankedRoom()) {
+    gameMode = "ffa";
+    if (!RANKED_STAGE_KEYS.includes(currentStageKey)) {
+      currentStageKey = "battlefield";
+    }
+  }
   updatePassphraseUI();
 
   if (updateUrl) {
     const url = new URL(location.href);
-    if (currentPassphrase) url.searchParams.set("room", currentPassphrase);
-    else url.searchParams.delete("room");
+    if (currentPassphrase && currentPassphrase !== RANKED_ROOM_ID) {
+      url.searchParams.set("room", currentPassphrase);
+    } else {
+      url.searchParams.delete("room");
+    }
     history.replaceState(null, "", url.toString());
   }
 
@@ -3731,9 +4475,11 @@ function connectToPassphrase(nextPassphrase, updateUrl = true) {
     players[r].color = sanitizeColorHex(PLAYER_COLORS[r], r);
   }
 
-  statusEl.textContent = currentPassphrase
-    ? `合言葉「${currentPassphrase}」の部屋に接続中...`
-    : `[${LOBBY_SECTION_NAME}]（最大${MAX_LOBBY_PLAYERS}人）に接続中...`;
+  statusEl.textContent = isRankedRoom()
+    ? `🏆 レート戦ロビー（${myRating} RP・最高 ${myPeakRating} RP）に接続中...`
+    : (currentPassphrase
+        ? `合言葉「${currentPassphrase}」の部屋に接続中...`
+        : `[${LOBBY_SECTION_NAME}]（最大${MAX_LOBBY_PLAYERS}人）に接続中...`);
   updateLoopUI();
   updateRoomStatusBox();
 
@@ -4180,12 +4926,14 @@ function drawTrapsAndEffects(now) {
 }
 
 function canUseUltimateAction(actor) {
+  if (isUltimatesDisabled()) return false;
   if (!actor) return false;
   if (actor.stocks <= 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
   return (Number(actor.ultGauge) || 0) >= ULTIMATE_MAX_GAUGE;
 }
 
 function executeUltimateForEntity(actor, nowMs = performance.now()) {
+  if (isUltimatesDisabled()) return false;
   if (!canUseUltimateAction(actor)) return false;
   const ultSpec = CHAR_ULTIMATES[actor.charKey] || CHAR_ULTIMATES.fighter;
 
@@ -4319,6 +5067,10 @@ function executeUltimateForEntity(actor, nowMs = performance.now()) {
 }
 
 function updateUltEffects(dtScale) {
+  if (isUltimatesDisabled()) {
+    ultEffects = [];
+    return;
+  }
   for (let i = ultEffects.length - 1; i >= 0; i--) {
     ultEffects[i].life -= dtScale;
     if (ultEffects[i].life <= 0) ultEffects.splice(i, 1);
@@ -4326,6 +5078,7 @@ function updateUltEffects(dtScale) {
 }
 
 function drawUltEffects() {
+  if (isUltimatesDisabled()) return;
   for (const fx of ultEffects) {
     const ratio = 1 - Math.max(0, fx.life / fx.maxLife);
     const alpha = Math.max(0.12, fx.life / fx.maxLife);
@@ -4464,7 +5217,6 @@ window.addEventListener("keydown", e => {
     if (!me || me.stocks <= 0) return;
     const spec = CHAR_SPECS[me.charKey];
 
-    // Wキーのジャンプは最優先（L攻撃中・他キー押下中でも即ジャンプ発動）
     if (e.code === "KeyW") {
       if (me.stun <= 0 && !me.frozen && !me.burnedOut && !me.shielding && me.jumps > 0) {
         me.vy = spec.jumpPower;
@@ -4488,7 +5240,7 @@ window.addEventListener("keydown", e => {
         else if (me.charKey === "trapper") cycleTrapMode(me);
       }
       if (e.code === "KeyU") {
-        executeUltimateForEntity(me);
+        if (!isUltimatesDisabled()) executeUltimateForEntity(me);
       }
       if (e.code === "KeyK") {
         if (me.charKey === "enhancer") tryEnhanceSelf(me);
@@ -4612,6 +5364,8 @@ function sendMyState(me, force = false) {
       role: me.role,
       name: sanitizePlayerName(myName, me.role),
       color: sanitizeColorHex(myColor, me.role),
+      rating: myRating,
+      title: equippedTitle,
       active: me.active,
       spectator: isSpectator,
       x: me.x, y: me.y, facing: me.facing,
@@ -4623,7 +5377,7 @@ function sendMyState(me, force = false) {
       guardianHits: me.guardianHits, invincibleTimer: me.invincibleTimer,
       hasClone: me.hasClone, mp: me.mp, magicMode: me.magicMode, trapMode: me.trapMode,
       frozen: me.frozen, stun: me.stun, charKey: me.charKey,
-      shielding: me.shielding, shieldHp: me.shieldHp, burnedOut: me.burnedOut, ultGauge: me.ultGauge || 0
+      shielding: me.shielding, shieldHp: me.shieldHp, burnedOut: me.burnedOut, ultGauge: isUltimatesDisabled() ? 0 : (me.ultGauge || 0)
     }
   }));
 }
@@ -4737,1087 +5491,627 @@ function resolveStageCollisions(entity, prevX, prevY, maxJumps, canDropPlatforms
         entity.percent += (hz.dmg || 6);
         entity.vx = (entity.x + entity.w * 0.5 < hz.x + hz.w * 0.5 ? -1 : 1) * (hz.kbX || 6);
         entity.vy = hz.kbY || -12;
-        entity.stun = Math.max(entity.stun || 0, 16);
-        entity.hazardCooldownFrames = 35;
-        entity.onGround = false;
+        entity.stun = Math.max(entity.stun || 0, 20);
+        entity.hazardCooldownFrames = 28;
         break;
       }
     }
   }
 }
 
-function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
-  const cl = clones[ownerRole];
-  const owner = players[ownerRole];
-  if (!cl || !cl.active) return;
-  if (!owner || owner.stocks <= 0 || owner.charKey !== "summoner") {
-    delete clones[ownerRole];
-    if (owner) owner.hasClone = false;
-    if (ownerRole === myRole) sendCloneSync(null);
+function updateClones(dtScale) {
+  for (const ownerStr of Object.keys(clones)) {
+    const ownerRole = Number(ownerStr);
+    const cl = clones[ownerRole];
+    if (!cl || !cl.active) continue;
+    if (!isPracticeMode && isRoleSpectating(ownerRole)) {
+      delete clones[ownerRole];
+      continue;
+    }
+
+    const spec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
+    const maxJumps = spec.maxJumps || 2;
+    if (cl.atkTimer > 0) cl.atkTimer = Math.max(0, cl.atkTimer - dtScale);
+    if (cl.cooldown > 0) cl.cooldown = Math.max(0, cl.cooldown - dtScale);
+
+    if (cl.stun > 0) {
+      cl.stun = Math.max(0, cl.stun - dtScale);
+      cl.vx *= Math.pow(0.90, dtScale);
+    } else {
+      let target = null;
+      let bestDist = Infinity;
+      for (const r of getParticipantRoles()) {
+        if (r === ownerRole || isSameTeam(ownerRole, r)) continue;
+        const p = players[r];
+        if (!p || !p.active || p.stocks <= 0) continue;
+        const d = Math.hypot((p.x + p.w * 0.5) - (cl.x + cl.w * 0.5), (p.y + p.h * 0.5) - (cl.y + cl.h * 0.5));
+        if (d < bestDist) {
+          bestDist = d;
+          target = p;
+        }
+      }
+
+      if (target) {
+        const dx = (target.x + target.w * 0.5) - (cl.x + cl.w * 0.5);
+        const dy = (target.y + target.h * 0.5) - (cl.y + cl.h * 0.5);
+        const dir = dx >= 0 ? 1 : -1;
+        cl.facing = dir;
+
+        if (Math.abs(dx) > 42) {
+          cl.vx += dir * spec.moveAcc * 0.85 * dtScale;
+        } else {
+          cl.vx *= Math.pow(spec.friction, dtScale);
+        }
+
+        if ((dy < -55 || cl.x < 185 || cl.x > 860) && cl.jumps > 0 && cl.vy > -3) {
+          cl.vy = spec.jumpPower * 0.96;
+          cl.jumps--;
+          cl.onGround = false;
+        }
+
+        if (cl.cooldown <= 0 && cl.atkTimer <= 0 && Math.abs(dx) < 68 && Math.abs(dy) < 48) {
+          cl.atkType = "light";
+          cl.atkDir = "side";
+          cl.atkTimer = 9;
+          cl.cooldown = Math.max(18, spec.lightCooldown + 8);
+          cl.hasHit = false;
+        }
+      } else {
+        cl.vx *= Math.pow(spec.friction, dtScale);
+      }
+    }
+
+    const prevX = cl.x;
+    const prevY = cl.y;
+    cl.vy += 0.55 * dtScale;
+    cl.x += cl.vx * dtScale;
+    cl.y += cl.vy * dtScale;
+    resolveStageCollisions(cl, prevX, prevY, maxJumps, false, dtScale);
+
+    const canControlClone = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+      ((ownerRole === myRole && !isSpectator) || (isPracticeMode && ownerRole === 2));
+
+    if (canControlClone && cl.atkTimer > 0 && !cl.hasHit) {
+      const hb = getMeleeHitbox(cl, performance.now());
+      if (hb) {
+        const clOriginX = cl.x + cl.w * 0.5;
+        const clOriginY = cl.y + cl.h * 0.5;
+        for (const r of getParticipantRoles()) {
+          if (r === ownerRole || isSameTeam(ownerRole, r)) continue;
+          const opp = players[r];
+          if (!opp || !opp.active || opp.stocks <= 0) continue;
+          if (doesMeleeHitEntity(hb, clOriginX, clOriginY, opp)) {
+            cl.hasHit = true;
+            sendHitFromActorToTarget(ownerRole, opp.role, Math.max(4, Math.round(spec.lightDmg * 0.7)), 4.5, cl.facing, null, 0.55, { wasLight: true, fromClone: true });
+            break;
+          }
+        }
+      }
+    }
+
+    if (cl.y > 650 || cl.x < -140 || cl.x > 1220 || cl.percent >= SUMMON_CLONE_MAX_PERCENT) {
+      delete clones[ownerRole];
+      if (players[ownerRole]) {
+        players[ownerRole].hasClone = false;
+        if (ownerRole === myRole) sendMyState(players[ownerRole], true);
+      }
+      if (ownerRole === myRole) sendCloneSync(null);
+      continue;
+    }
+
+    if (ownerRole === myRole) {
+      sendCloneSync(cl);
+    }
+  }
+}
+
+function updatePracticeBot(bot, opp, dtScale) {
+  if (!isPracticeMode || isPracticeStopped || !bot || !bot.active || bot.stocks <= 0 || phase !== "playing") return;
+  const lv = Math.max(1, Math.min(10, Number(practiceBotLevel) || 5));
+  const spec = CHAR_SPECS[bot.charKey] || CHAR_SPECS.fighter;
+  const maxJumps = getMaxJumpsForPlayer(bot);
+
+  if (!bot._aiTimer) bot._aiTimer = 0;
+  if (!bot._aiDir) bot._aiDir = -1;
+  bot._aiTimer -= dtScale;
+
+  if (bot.stun > 0 || bot.frozen || bot.burnedOut) {
+    bot.shielding = false;
+    bot.smashCharging = false;
     return;
   }
 
-  if (cl.charKey === "hammer") {
-    ensureHammerCritState(cl, nowMs);
-  }
+  const target = (opp && opp.active && opp.stocks > 0) ? opp : null;
+  const botCenterX = bot.x + bot.w * 0.5;
+  const botCenterY = bot.y + bot.h * 0.5;
 
-  const spec = CHAR_SPECS[cl.charKey] || CHAR_SPECS.fighter;
-  const ground = findSolidBeneath(cl.x + cl.w / 2, cl.y + cl.h);
-  let nearestTarget = null, nearestDist = Infinity;
-  for (const r of getParticipantRoles()) {
-    if (r === ownerRole || isSameTeam(ownerRole, r)) continue;
-    const t = players[r];
-    if (!t || !t.active || t.stocks <= 0) continue;
-    const d = Math.hypot((t.x + t.w / 2) - (cl.x + cl.w / 2), (t.y + t.h / 2) - (cl.y + cl.h / 2));
-    if (d < nearestDist) { nearestDist = d; nearestTarget = t; }
-  }
+  const aggro = (lv - 1) / 9;
+  const moveFactor = 0.42 + aggro * 0.56;
+  const attackCooldownMin = Math.max(14, Math.round(52 - aggro * 34));
+  const jumpProb = 0.012 + aggro * 0.032;
+  const smashProb = 0.004 + aggro * 0.022;
+  const shieldProb = lv >= 4 ? (0.004 + aggro * 0.018) : 0;
 
-  if (cl.stun > 0) {
-    cl.stun = Math.max(0, cl.stun - dtScale);
-  } else if (nearestTarget) {
-    const dx = (nearestTarget.x + nearestTarget.w / 2) - (cl.x + cl.w / 2);
-    const dy = (nearestTarget.y + nearestTarget.h / 2) - (cl.y + cl.h / 2);
-    cl.facing = dx >= 0 ? 1 : -1;
-    if (Math.abs(dx) > (cl.charKey === "mage" ? 260 : 46)) cl.vx += cl.facing * spec.moveAcc * 0.55 * dtScale;
-    if (((cl.x < ground.x + 28 && cl.vx < 0) || (cl.x + cl.w > ground.x + ground.w - 28 && cl.vx > 0) || (dy < -75 && Math.abs(dx) < 120 && Math.random() < 0.04)) && cl.jumps > 0 && cl.vy >= -1) {
-      cl.vy = spec.jumpPower; cl.jumps--;
+  if (bot.y > 435 || bot.x < 150 || bot.x > 930) {
+    const rec = findNearestRecoveryPlatform(botCenterX, botCenterY);
+    const recTargetX = Math.max(rec.x + 16, Math.min(rec.x + rec.w - 16, 540));
+    const toRecDir = recTargetX >= botCenterX ? 1 : -1;
+    bot.facing = toRecDir;
+    bot.vx += toRecDir * getEffectiveMoveAcc(bot, spec) * moveFactor * dtScale;
+    if (bot.jumps > 0 && (bot.vy > -2 || bot.y > rec.y - 10)) {
+      bot.vy = spec.jumpPower;
+      bot.jumps--;
+      bot.onGround = false;
     }
-    const canUpHit = Math.abs(dx) <= 34 && dy < -18 && dy >= -48;
-    const canDownHit = Math.abs(dx) <= 34 && dy > 18 && dy <= 44;
-    const inSideRange = cl.charKey === "mage" ? (Math.abs(dx) <= 360 && Math.abs(dy) <= 36) : (Math.abs(dx) <= 46 && Math.abs(dy) <= 36);
-    if ((canUpHit || canDownHit || inSideRange) && cl.cooldown <= 0 && cl.atkTimer <= 0 && Math.random() < 0.14) {
-      const chosenDir = canUpHit ? "up" : (canDownHit ? "down" : "side");
-      cl.atkDir = chosenDir;
-      cl.atkTimer = cl.charKey === "fighter" ? 7 : 10;
-      const baseCloneLightCd = (cl.charKey === "mage" && chosenDir === "side") ? 16 : spec.lightCooldown;
-      cl.cooldown = baseCloneLightCd + 28;
-      cl.hasHit = false;
-      if (cl.charKey === "mage" && chosenDir === "side") {
-        const laserLen = 360, laserH = 10;
-        const laserBeam = {
-          ownerRole, fromClone: true, mode: "mage_laser",
-          x: cl.facing === 1 ? cl.x + cl.w + 4 : cl.x - laserLen - 4,
-          y: cl.y + 15, w: laserLen, h: laserH, dir: cl.facing,
-          life: 9, maxLife: 9, dmg: Math.max(4, spec.lightDmg - 2), basePower: 3.5, hasHitRoles: []
-        };
-        beams.push(laserBeam);
-        if (!isPracticeMode && ownerRole === myRole && ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "beam", beam: laserBeam }));
+    bot.shielding = false;
+    return;
+  }
+
+  if (target) {
+    const oppCenterX = target.x + target.w * 0.5;
+    const oppCenterY = target.y + target.h * 0.5;
+    const dx = oppCenterX - botCenterX;
+    const dy = oppCenterY - botCenterY;
+    const absDx = Math.abs(dx);
+    const dir = dx >= 0 ? 1 : -1;
+
+    if (bot._aiTimer <= 0) {
+      bot._aiTimer = Math.max(6, Math.round(24 - aggro * 14));
+      if (absDx > 65) {
+        bot._aiDir = dir;
+      } else if (lv <= 3 && Math.random() < 0.35) {
+        bot._aiDir = -dir;
+      } else {
+        bot._aiDir = dir;
+      }
+    }
+
+    bot.facing = absDx > 18 ? dir : bot._aiDir;
+
+    if (absDx > 48 || lv <= 3) {
+      bot.vx += bot._aiDir * getEffectiveMoveAcc(bot, spec) * moveFactor * dtScale;
+    } else {
+      bot.vx *= Math.pow(spec.friction, dtScale);
+    }
+
+    if (bot.onGround && !bot.burnedOut && bot.shieldHp > 25 && Math.random() < shieldProb * dtScale) {
+      bot.shielding = true;
+    } else if (bot.shielding && Math.random() < 0.08 * dtScale) {
+      bot.shielding = false;
+    }
+
+    if (!bot.shielding && bot.jumps > 0 && bot.vy > -1.5) {
+      const shouldJumpForHeight = dy < -52 && Math.random() < (jumpProb * 2.2) * dtScale;
+      const shouldRandomJump = Math.random() < jumpProb * dtScale;
+      if (shouldJumpForHeight || shouldRandomJump) {
+        bot.vy = spec.jumpPower;
+        bot.jumps--;
+        bot.onGround = false;
+      }
+    }
+
+    if (!bot.shielding && bot.cooldown <= 0 && bot.atkTimer <= 0) {
+      if (bot.charKey === "enhancer" && canUseEnhanceAction(bot) && Math.random() < 0.04 * dtScale) {
+        tryEnhanceSelfForEntity(bot);
+      } else if (bot.charKey === "summoner" && canUseSummonAction(bot) && Math.random() < 0.03 * dtScale) {
+        trySummonCloneForRole(bot.role);
+      } else if (bot.charKey === "trapper" && canUseTrapAction(bot) && bot.onGround && Math.random() < 0.04 * dtScale) {
+        tryPlaceTrapForEntity(bot);
+      } else if (bot.charKey === "elementalist") {
+        if ((bot.mp || 0) < 25 && Math.random() < 0.04 * dtScale) {
+          bot.magicMode = "heal";
+          castSelectedElementMagic(bot);
+        } else if (absDx < 260 && Math.abs(dy) < 55 && Math.random() < (0.02 + aggro * 0.05) * dtScale) {
+          bot.magicMode = (bot.mp || 0) >= 20 ? "fire" : "ice";
+          castSelectedElementMagic(bot);
+        }
+      }
+
+      if (absDx < 74 && Math.abs(dy) < 56) {
+        if (lv >= 3 && Math.random() < smashProb * dtScale && canUseStandardSmash(bot)) {
+          executeAttackForEntity(bot, true, Math.min(1, 0.25 + aggro * 0.65));
+          bot.cooldown = Math.max(bot.cooldown, attackCooldownMin);
+        } else if (Math.random() < (0.05 + aggro * 0.14) * dtScale && canUseStandardLight(bot)) {
+          const dirChoice = dy < -44 ? "up" : (dy > 44 && !bot.onGround ? "down" : "side");
+          executeAttackForEntity(bot, false, 0, dirChoice);
+          bot.cooldown = Math.max(bot.cooldown, attackCooldownMin);
+        }
+      } else if (bot.charKey === "mage" && absDx < 420 && Math.abs(dy) < 42 && Math.random() < (0.015 + aggro * 0.045) * dtScale) {
+        executeAttackForEntity(bot, false, 0, "side");
+        bot.cooldown = Math.max(bot.cooldown, attackCooldownMin);
+      }
+    }
+  } else {
+    bot.vx *= Math.pow(spec.friction, dtScale);
+  }
+}
+
+function update(dt) {
+  const dtScale = Math.min(2.5, Math.max(0.25, dt / (1000 / 60)));
+
+  if (isPracticeMode && isPracticeStopped) {
+    return;
+  }
+
+  if (!isPublicLobbyRoom() && phase === "playing") {
+    updateStageGimmicks(dtScale);
+  }
+
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const pr = projectiles[i];
+    pr.x += pr.vx * dtScale;
+    pr.life -= dtScale;
+    if (pr.life <= 0 || pr.x < -100 || pr.x > 1180) {
+      projectiles.splice(i, 1);
+      continue;
+    }
+    if (!isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked && pr.ownerRole === myRole && !isSpectator) {
+      let consumed = false;
+      for (const r of getParticipantRoles()) {
+        if (r === myRole || isSameTeam(myRole, r)) continue;
+        const target = players[r];
+        if (!target || !target.active || target.stocks <= 0) continue;
+        if (rectsOverlap(pr, target)) {
+          sendHitFromActorToTarget(myRole, target.role, pr.dmg, pr.basePower, pr.dir, pr.effect || null, 0.62, { wasSmash: !!pr.wasSmash, wasLight: !!pr.wasLight });
+          consumed = true;
+          break;
+        }
+      }
+      if (!consumed) {
+        consumed = checkHitEnemyClonesByBoxForActor(myRole, pr, pr.dmg, pr.basePower, pr.dir, pr.effect || null, 0.62, null, null, null, true, { wasSmash: !!pr.wasSmash, wasLight: !!pr.wasLight });
+      }
+      if (consumed) {
+        projectiles.splice(i, 1);
+        continue;
+      }
+    }
+  }
+
+  for (let i = beams.length - 1; i >= 0; i--) {
+    const bm = beams[i];
+    bm.life -= dtScale;
+    if (bm.life <= 0) {
+      beams.splice(i, 1);
+      continue;
+    }
+    const isBeamAuth = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
+      ((bm.ownerRole === myRole && !isSpectator) || (isPracticeMode && bm.ownerRole === 2));
+    if (isBeamAuth && bm.mode !== "heal") {
+      if (!bm.hasHitRoles) bm.hasHitRoles = [];
+      if (!bm.hasHitCloneOwners) bm.hasHitCloneOwners = [];
+      const clippedRect = getClippedBeamRect(bm);
+      for (const r of getParticipantRoles()) {
+        if (r === bm.ownerRole || isSameTeam(bm.ownerRole, r) || bm.hasHitRoles.includes(r)) continue;
+        const target = players[r];
+        if (!target || !target.active || target.stocks <= 0) continue;
+        if (clippedRect.w > 0 && rectsOverlap(clippedRect, target)) {
+          bm.hasHitRoles.push(r);
+          if (bm.mode === "ult_beam") {
+            sendHitFromActorToTarget(bm.ownerRole, target.role, bm.dmg || 68, bm.basePower || 17.5, bm.dir, null, bm.upAngleMult || 0.68, { wasSmash: true, wasUlt: true });
+          } else if (bm.mode === "fire") {
+            sendHitFromActorToTarget(bm.ownerRole, target.role, 5, 4.0, bm.dir, "burn", 0.55, { wasSmash: true });
+          } else if (bm.mode === "ice") {
+            sendHitFromActorToTarget(bm.ownerRole, target.role, 6, 3.0, bm.dir, "freeze", 0.45, { wasSmash: true });
+          } else {
+            sendHitFromActorToTarget(bm.ownerRole, target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true });
+          }
+        }
+      }
+      if (clippedRect.w > 0) {
+        if (bm.mode === "ult_beam") {
+          checkHitEnemyClonesByBoxForActor(bm.ownerRole, clippedRect, bm.dmg || 68, bm.basePower || 17.5, bm.dir, null, bm.upAngleMult || 0.68, bm.hasHitCloneOwners, null, null, true, { wasSmash: true, wasUlt: true });
+        } else if (bm.mode === "fire") {
+          checkHitEnemyClonesByBoxForActor(bm.ownerRole, clippedRect, 5, 4.0, bm.dir, "burn", 0.55, bm.hasHitCloneOwners, null, null, true, { wasSmash: true });
+        } else if (bm.mode === "ice") {
+          checkHitEnemyClonesByBoxForActor(bm.ownerRole, clippedRect, 6, 3.0, bm.dir, "freeze", 0.45, bm.hasHitCloneOwners, null, null, true, { wasSmash: true });
+        } else {
+          checkHitEnemyClonesByBoxForActor(bm.ownerRole, clippedRect, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, bm.hasHitCloneOwners, null, null, true, { wasLight: true });
         }
       }
     }
   }
 
-  cl.vx *= cl.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(spec.friction, dtScale);
-  cl.vy += 0.56 * dtScale;
-  const prevX = cl.x, prevY = cl.y;
-  cl.x += cl.vx * dtScale; cl.y += cl.vy * dtScale;
-  resolveStageCollisions(cl, prevX, prevY, spec.maxJumps || 2, false, dtScale);
-
-  if (cl.atkTimer > 0) { cl.atkTimer = Math.max(0, cl.atkTimer - dtScale); if (cl.atkTimer === 0) cl.hasHit = false; }
-  if (cl.cooldown > 0) cl.cooldown = Math.max(0, cl.cooldown - dtScale);
-
-  const clDir = cl.atkDir || "side";
-  if (!(cl.charKey === "mage" && clDir === "side") && cl.atkTimer > 0 && !cl.hasHit) {
-    let hb;
-    if (clDir === "up") {
-      hb = { x: cl.x + cl.w * 0.5 - 21, y: cl.y - 28, w: 42, h: 32 };
-    } else if (clDir === "down") {
-      hb = { x: cl.x + cl.w * 0.5 - 21, y: cl.y + cl.h - 4, w: 42, h: 28 };
-    } else {
-      hb = { x: cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, y: cl.y + 9, w: 38, h: 24 };
-    }
-    const cx = cl.x + cl.w * 0.5;
-    const cy = cl.y + cl.h * 0.5;
-    for (const r of getParticipantRoles()) {
-      if (r === ownerRole || isSameTeam(ownerRole, r)) continue;
-      const target = players[r];
-      if (!target || !target.active || target.stocks <= 0) continue;
-      if (doesMeleeHitEntity(hb, cx, cy, target)) {
-        cl.hasHit = true;
-        const dirSign = clDir === "side"
-          ? cl.facing
-          : (((target.x + target.w * 0.5) >= cx ? 1 : -1) * 0.25);
-        const upMult = clDir === "up" ? 1.35 : (clDir === "down" ? -0.55 : 0.55);
-        sendHitFromActorToTarget(ownerRole, target.role, Math.max(4, spec.lightDmg - 2), 4.5, dirSign, null, upMult, { fromClone: true, wasLight: true, wasSmash: false });
-        break;
-      }
-    }
-    if (!cl.hasHit) {
-      const upMult = clDir === "up" ? 1.35 : (clDir === "down" ? -0.55 : 0.55);
-      if (checkHitEnemyClonesByBoxForActor(ownerRole, hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, upMult, null, cx, cy, false, { wasLight: true, wasSmash: false })) {
-        cl.hasHit = true;
-      }
-    }
-  }
-
-  if (cl.percent >= SUMMON_CLONE_MAX_PERCENT || cl.x < -160 || cl.x > canvas.width + 160 || cl.y > canvas.height + 160) {
-    delete clones[ownerRole];
-    owner.hasClone = false;
-    if (ownerRole === myRole) {
-      sendCloneSync(null);
-      sendMyState(owner, true);
-    }
-    return;
-  }
-  if (ownerRole === myRole) sendCloneSync(cl);
-}
-
-function updateMyClone(dtScale, nowMs = performance.now()) {
-  if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
-  updateCloneForOwner(myRole, dtScale, nowMs);
-  if (isPracticeMode && clones[2] && clones[2].active) {
-    updateCloneForOwner(2, dtScale, nowMs);
-  }
-}
-
-function updateBurnDebuffs(dtScale) {
-  if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked) return;
-  for (let i = burnDebuffs.length - 1; i >= 0; i--) {
-    const b = burnDebuffs[i];
-    const isMyBurn = (b.targetRole === myRole && !isSpectator);
-    const isBotBurn = (isPracticeMode && b.targetRole === 2);
-    if (!isMyBurn && !isBotBurn) continue;
-
-    const targetEntity = players[b.targetRole];
-    if (!targetEntity || targetEntity.stocks <= 0) {
-      burnDebuffs.splice(i, 1);
-      continue;
-    }
-
-    b.tickTimer += dtScale;
-    if (b.tickTimer >= 60) {
-      b.tickTimer -= 60;
-      if ((targetEntity.invincibleTimer || 0) <= 0) {
-        targetEntity.percent += b.dmgPerTick;
-        if (b.targetRole === myRole) sendMyState(targetEntity, true);
-      }
-      if (--b.ticksLeft <= 0) burnDebuffs.splice(i, 1);
-    }
-  }
-}
-
-function updateBeams(dtScale) {
-  for (let i = beams.length - 1; i >= 0; i--) {
-    const bm = beams[i];
-    bm.life -= dtScale;
-    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
-      ((bm.ownerRole === myRole && !isSpectator) || (isPracticeMode && bm.ownerRole === 2));
-
-    if (isAuthoritative && bm.mode !== "heal") {
-      const hitBox = getClippedBeamRect(bm);
-      const originX = bm.dir === 1 ? hitBox.x : hitBox.x + hitBox.w;
-      const originY = hitBox.y + hitBox.h * 0.5;
-
-      for (const r of getParticipantRoles()) {
-        if (r === bm.ownerRole || isSameTeam(bm.ownerRole, r) || bm.hasHitRoles.includes(r)) continue;
-        const target = players[r];
-        if (!target || !target.active || target.stocks <= 0) continue;
-        if (!rectsOverlap(hitBox, target)) continue;
-        if (isBlockedByStageSegment(originX, originY, target.x + target.w * 0.5, target.y + target.h * 0.5)) continue;
-
-        bm.hasHitRoles.push(r);
-        if (bm.mode === "fire") sendHitFromActorToTarget(bm.ownerRole, target.role, 0, 2.5, bm.dir, "burn", 0.62, { wasSmash: true });
-        else if (bm.mode === "ice") sendHitFromActorToTarget(bm.ownerRole, target.role, 4, 0, bm.dir, "freeze", 0.62, { wasLight: true });
-        else if (bm.mode === "mage_laser") sendHitFromActorToTarget(bm.ownerRole, target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true, fromClone: !!bm.fromClone });
-        else if (bm.mode === "ult_beam") sendHitFromActorToTarget(bm.ownerRole, target.role, bm.dmg || 68, bm.basePower || 17.5, bm.dir, null, bm.upAngleMult || 0.68, { wasSmash: true, wasUlt: true });
-      }
-      if (!bm.hasHitCloneOwners) bm.hasHitCloneOwners = [];
-      checkHitEnemyClonesByBoxForActor(
-        bm.ownerRole,
-        hitBox,
-        bm.mode === "fire" ? 15 : (bm.mode === "ice" ? 4 : (bm.dmg || 8)),
-        bm.mode === "fire" ? 2.5 : (bm.mode === "ice" ? 0 : (bm.basePower || 5.0)),
-        bm.dir,
-        bm.mode === "ice" ? "freeze" : null,
-        0.55,
-        bm.hasHitCloneOwners,
-        originX,
-        originY,
-        false,
-        { wasSmash: bm.mode === "fire", wasLight: bm.mode !== "fire", wasUlt: bm.mode === "ult_beam" }
-      );
-    }
-    if (bm.life <= 0) beams.splice(i, 1);
-  }
-}
-
-function updateRings(dtScale) {
   for (let i = ringEffects.length - 1; i >= 0; i--) {
     const rg = ringEffects[i];
     rg.life -= dtScale;
-    const curRadius = rg.maxRadius * Math.min(1, (1 - Math.max(0, rg.life / rg.maxLife)) * 1.35);
-    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
+    if (rg.life <= 0) {
+      ringEffects.splice(i, 1);
+      continue;
+    }
+    const isRingAuth = !isPublicLobbyRoom() && phase === "playing" && !entryBlockedByHost && !isRoomFullBlocked &&
       ((rg.ownerRole === myRole && !isSpectator) || (isPracticeMode && rg.ownerRole === 2));
-
-    if (isAuthoritative) {
+    if (isRingAuth) {
+      if (!rg.hasHitRoles) rg.hasHitRoles = [];
+      if (!rg.hasHitCloneOwners) rg.hasHitCloneOwners = [];
+      const progress = 1 - (rg.life / rg.maxLife);
+      const curRadius = Math.max(18, rg.maxRadius * (0.25 + progress * 0.75));
       for (const r of getParticipantRoles()) {
         if (r === rg.ownerRole || isSameTeam(rg.ownerRole, r) || rg.hasHitRoles.includes(r)) continue;
         const target = players[r];
         if (!target || !target.active || target.stocks <= 0) continue;
         const closestX = Math.max(target.x, Math.min(rg.cx, target.x + target.w));
         const closestY = Math.max(target.y, Math.min(rg.cy, target.y + target.h));
-        const dx = closestX - rg.cx;
-        const dy = closestY - rg.cy;
-        if (Math.hypot(dx, dy) <= curRadius) {
+        if (Math.hypot(closestX - rg.cx, closestY - rg.cy) <= curRadius) {
           rg.hasHitRoles.push(r);
-          const dirX = ((target.x + target.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
-          sendHitFromActorToTarget(rg.ownerRole, target.role, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
+          const dir = ((target.x + target.w / 2) >= rg.cx) ? 1 : -1;
+          sendHitFromActorToTarget(rg.ownerRole, target.role, rg.dmg || 16, rg.basePower || 9.5, dir, null, 0.72, { pierceGuard: true, wasSmash: true });
         }
       }
-      if (!rg.hasHitCloneOwners) rg.hasHitCloneOwners = [];
       for (const ownerStr of Object.keys(clones)) {
         const ownerRole = Number(ownerStr);
-        if (ownerRole === rg.ownerRole || isSameTeam(rg.ownerRole, ownerRole) || rg.hasHitCloneOwners.includes(ownerRole)) continue;
+        if (ownerRole === rg.ownerRole || isSameTeam(rg.ownerRole, ownerRole) || isRoleSpectating(ownerRole) || rg.hasHitCloneOwners.includes(ownerRole)) continue;
         const cl = clones[ownerRole];
         if (!cl || !cl.active) continue;
         const closestX = Math.max(cl.x, Math.min(rg.cx, cl.x + cl.w));
         const closestY = Math.max(cl.y, Math.min(rg.cy, cl.y + cl.h));
-        const dx = closestX - rg.cx;
-        const dy = closestY - rg.cy;
-        if (Math.hypot(dx, dy) <= curRadius) {
+        if (Math.hypot(closestX - rg.cx, closestY - rg.cy) <= curRadius) {
           rg.hasHitCloneOwners.push(ownerRole);
-          const dirX = ((cl.x + cl.w * 0.5) - rg.cx) >= 0 ? 1 : -1;
-          sendHitFromActorToClone(rg.ownerRole, ownerRole, rg.dmg, rg.basePower, dirX, null, 0.65, { wasSmash: true });
+          const dir = ((cl.x + cl.w / 2) >= rg.cx) ? 1 : -1;
+          sendHitFromActorToClone(rg.ownerRole, ownerRole, rg.dmg || 16, rg.basePower || 9.5, dir, null, 0.72, { wasSmash: true });
         }
       }
     }
-    if (rg.life <= 0) ringEffects.splice(i, 1);
   }
-}
 
-function processEntityMeleeHits(actor, nowMs) {
-  const spec = CHAR_SPECS[actor.charKey];
-  const hb = getMeleeHitbox(actor, nowMs);
-  const inActiveFrames = hb && (
-    (hb.isSmash && actor.atkTimer >= 6.5 && actor.atkTimer <= 11.5) ||
-    (!hb.isSmash && actor.atkTimer >= (actor.charKey === "fighter" ? 2.5 : 5.5) && actor.atkTimer <= (actor.charKey === "fighter" ? 6.5 : 8.5))
-  );
-
-  if (!inActiveFrames || actor.hasHit) return;
-
-  const originX = actor.x + actor.w * 0.5;
-  const originY = actor.y + actor.h * 0.5;
-  const atkDir = hb.atkDir || "side";
-
-  for (const r of getParticipantRoles()) {
-    if (r === actor.role || isSameTeam(actor.role, r)) continue;
-    const target = players[r];
-    if (!target || !target.active || target.stocks <= 0) continue;
-    if (doesMeleeHitEntity(hb, originX, originY, target)) {
-      actor.hasHit = true;
-      if (!hb.isSmash && actor.charKey === "elementalist") actor.mp = Math.min(MAX_MP, (actor.mp || 0) + 5);
-      if (hb.isSmash) {
-        const ratio = actor.smashChargeRatio || 0;
-        let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
-        let finalKb = 14.5 * (1 + ratio * 0.45);
-        let pierceGuard = false;
-        let wasCrit = false;
-
-        if (actor.charKey === "hammer") {
-          wasCrit = isHammerCritState(actor, nowMs);
-          if (wasCrit) {
-            finalDmg += HAMMER_CRIT_BONUS_DMG;
-            finalKb *= 1.45;
-            pierceGuard = true;
-          }
-          handleHammerHitProgress(actor, wasCrit);
-        }
-        sendHitFromActorToTarget(actor.role, target.role, finalDmg, finalKb, actor.facing, null, 0.62, {
-          wasSmash: true,
-          wasLight: false,
-          wasCrit,
-          pierceGuard
-        });
-        actor.smashChargeRatio = 0;
-        if (actor.role === myRole) sendMyState(actor, true);
-      } else {
-        const lightStats = getEffectiveLightStats(actor, spec);
-        if (actor.charKey === "guardian" && (actor.invincibleTimer || 0) <= 0) {
-          actor.guardianHits = (actor.guardianHits || 0) + 1;
-          if (actor.guardianHits >= GUARDIAN_INVINCIBLE_HITS) {
-            actor.guardianHits = 0;
-            actor.invincibleTimer = GUARDIAN_INVINCIBLE_FRAMES;
-          }
-          if (actor.role === myRole) sendMyState(actor, true);
-        }
-        const targetCenterX = target.x + target.w * 0.5;
-        const dirSign = atkDir === "side"
-          ? actor.facing
-          : ((targetCenterX >= originX ? 1 : -1) * 0.25);
-        const upMult = atkDir === "up"
-          ? 1.45
-          : (atkDir === "down" ? (actor.onGround ? 0.50 : -0.65) : 0.62);
-        sendHitFromActorToTarget(actor.role, target.role, lightStats.dmg, lightStats.basePower, dirSign, null, upMult, { wasLight: true, wasSmash: false });
+  for (let i = burnDebuffs.length - 1; i >= 0; i--) {
+    const bd = burnDebuffs[i];
+    bd.tickTimer += dtScale;
+    if (bd.tickTimer >= 20) {
+      bd.tickTimer = 0;
+      bd.ticksLeft--;
+      if (bd.targetRole === myRole && !isSpectator && players[myRole] && players[myRole].stocks > 0) {
+        applyDamageToMe(players[myRole], CHAR_SPECS[players[myRole].charKey], bd.dmgPerTick, 0, bd.dir, 0.5, false, { wasLight: true });
       }
-      break;
+      if (bd.ticksLeft <= 0) burnDebuffs.splice(i, 1);
     }
   }
 
-  if (!actor.hasHit) {
-    if (hb.isSmash) {
-      const ratio = actor.smashChargeRatio || 0;
-      let finalDmg = Math.floor(spec.smashDmg * (1 + ratio * 0.50));
-      let finalKb = 14.5 * (1 + ratio * 0.45);
-      let wasCrit = false;
-      if (actor.charKey === "hammer") {
-        wasCrit = isHammerCritState(actor, nowMs);
-        if (wasCrit) {
-          finalDmg += HAMMER_CRIT_BONUS_DMG;
-          finalKb *= 1.45;
-        }
-      }
-      if (checkHitEnemyClonesByBoxForActor(actor.role, hb, finalDmg, finalKb, actor.facing, null, 0.62, null, originX, originY, false, { wasSmash: true, wasLight: false })) {
-        if (actor.charKey === "hammer") handleHammerHitProgress(actor, wasCrit);
-        actor.hasHit = true;
-        actor.smashChargeRatio = 0;
-        if (actor.role === myRole) sendMyState(actor, true);
-      }
+  if (!isPublicLobbyRoom() && phase === "playing") {
+    updateClones(dtScale);
+    updateTraps(dtScale);
+    updateUltEffects(dtScale);
+  }
+
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0 || phase !== "playing") return;
+  const me = players[myRole];
+  if (!me || me.stocks <= 0) return;
+
+  const spec = CHAR_SPECS[me.charKey];
+  const maxJumps = getMaxJumpsForPlayer(me);
+
+  if ((me.invincibleTimer || 0) > 0) me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
+  if (me.dropThroughTimer > 0) me.dropThroughTimer = Math.max(0, me.dropThroughTimer - dtScale);
+  if (me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp || 0) + 0.16 * dtScale);
+
+  if (me.stun > 0) {
+    me.stun = Math.max(0, me.stun - dtScale);
+    me.shielding = false;
+    me.smashCharging = false;
+    if (me.stun === 0) me.frozen = false;
+  } else {
+    me.frozen = false;
+    const wantShield = !!down["KeyJ"] && !me.burnedOut;
+    if (wantShield && !me.shielding && me.shieldHp > 1) {
+      me.shielding = true;
+      me.smashCharging = false;
+    } else if (!wantShield || me.shieldHp <= 0 || me.burnedOut) {
+      if (me.shielding && me.shieldHp <= 0) triggerBurnout(me);
+      me.shielding = false;
+    }
+
+    if (me.shielding) {
+      me.vx *= Math.pow(0.75, dtScale);
+      me.shieldHp = Math.max(0, me.shieldHp - spec.shieldDrain * dtScale);
+      if (me.shieldHp <= 0) triggerBurnout(me);
     } else {
-      const lightStats = getEffectiveLightStats(actor, spec);
-      const upMult = atkDir === "up"
-        ? 1.45
-        : (atkDir === "down" ? (actor.onGround ? 0.50 : -0.65) : 0.62);
-      const dirSign = atkDir === "side" ? actor.facing : (actor.facing * 0.25);
-      if (checkHitEnemyClonesByBoxForActor(actor.role, hb, lightStats.dmg, lightStats.basePower, dirSign, null, upMult, null, originX, originY, false, { wasLight: true, wasSmash: false })) {
-        actor.hasHit = true;
+      if (!me.shieldHp || me.shieldHp < MAX_SHIELD) {
+        me.shieldHp = Math.min(MAX_SHIELD, (me.shieldHp || 0) + (me.burnedOut ? 0.35 : 0.22) * dtScale);
+        if (me.burnedOut && me.shieldHp >= 40) me.burnedOut = false;
       }
-    }
-  }
-}
-
-function handleEntityRingOut(actor) {
-  const maxJumps = getMaxJumpsForPlayer(actor);
-  actor.stocks = Math.max(0, actor.stocks - 1);
-  actor.percent = 0; actor.vx = 0; actor.vy = 0; actor.stun = 0; actor.frozen = false;
-  actor.jumps = maxJumps; actor.onGround = false; actor.shielding = false; actor.burnedOut = false; actor.shieldHp = MAX_SHIELD;
-  actor.smashCharging = false; actor.hasHit = false; actor.enhanceLevel = 0; actor.enhanceCooldownUntil = 0;
-  actor.warpCooldownFrames = 0; actor.hazardCooldownFrames = 0; actor.onIce = false;
-  resetHammerCritAndCharge(actor);
-  actor.guardianHits = 0;
-  if (clones[actor.role]) {
-    delete clones[actor.role];
-    actor.hasClone = false;
-    if (actor.role === myRole) sendCloneSync(null);
-  }
-  traps = traps.filter(t => t.ownerRole !== actor.role);
-  actor.mp = MAX_MP;
-  burnDebuffs = burnDebuffs.filter(b => b.targetRole !== actor.role);
-  if (actor.stocks > 0) {
-    const sp = getSpawnPoint(actor.role);
-    actor.x = sp.x; actor.y = sp.y; actor.facing = sp.facing;
-    actor.invincibleTimer = RESPAWN_INVINCIBLE_FRAMES;
-  } else {
-    actor.invincibleTimer = 0;
-  }
-  if (actor.role === myRole) sendMyState(actor, true);
-  checkMatchEndCondition();
-}
-
-function findBotCombatTarget(bot) {
-  const player1 = players[1];
-  const enemyClone = clones[1];
-  const hasPlayer1 = !!(player1 && player1.active && player1.stocks > 0);
-  const hasEnemyClone = !!(enemyClone && enemyClone.active);
-
-  if (!hasPlayer1 && !hasEnemyClone) return null;
-  if (hasPlayer1 && !hasEnemyClone) return player1;
-  if (!hasPlayer1 && hasEnemyClone) return enemyClone;
-
-  const p1Dist = Math.hypot(
-    (player1.x + player1.w * 0.5) - (bot.x + bot.w * 0.5),
-    (player1.y + player1.h * 0.5) - (bot.y + bot.h * 0.5)
-  );
-  const clDist = Math.hypot(
-    (enemyClone.x + enemyClone.w * 0.5) - (bot.x + bot.w * 0.5),
-    (enemyClone.y + enemyClone.h * 0.5) - (bot.y + bot.h * 0.5)
-  );
-
-  if (clDist < p1Dist * 0.92 && clDist < 250) {
-    return enemyClone;
-  }
-  return player1;
-}
-
-function chooseBotRecoveryDestination(bot, target) {
-  const st = getCurrentStage();
-  const cx = bot.x + bot.w * 0.5;
-  const cy = bot.y + bot.h * 0.5;
-  const targetX = target ? (target.x + target.w * 0.5) : (canvas.width * 0.5);
-
-  const recPlat = findNearestRecoveryPlatform(cx, cy);
-  let destX = Math.max(recPlat.x + 22, Math.min(recPlat.x + recPlat.w - 22, targetX));
-  let destY = recPlat.y - bot.h;
-  let useWarp = false;
-
-  if (Array.isArray(st.warps) && st.warps.length >= 2 && (!bot.warpCooldownFrames || bot.warpCooldownFrames <= 0)) {
-    let bestWarp = null;
-    let bestWarpScore = Infinity;
-    for (const wp of st.warps) {
-      const warpCx = wp.x + wp.w * 0.5;
-      const warpCy = wp.y + wp.h * 0.5;
-      const dToWarp = Math.hypot(warpCx - cx, warpCy - cy);
-      if (dToWarp > 260) continue;
-      const pair = st.warps.find(o => o.id === wp.pairId) || st.warps.find(o => o !== wp);
-      if (!pair) continue;
-      const pairPlat = findNearestRecoveryPlatform(pair.x + pair.w * 0.5, pair.y + pair.h * 0.5);
-      const pairDistToCenter = Math.abs((pairPlat.x + pairPlat.w * 0.5) - targetX);
-      const score = dToWarp * 0.8 + pairDistToCenter * 0.5;
-      if (score < bestWarpScore) {
-        bestWarpScore = score;
-        bestWarp = wp;
-      }
-    }
-    if (bestWarp && bestWarpScore < Math.hypot(destX - cx, recPlat.y - cy) * 0.9) {
-      destX = bestWarp.x + bestWarp.w * 0.5;
-      destY = bestWarp.y + bestWarp.h * 0.5;
-      useWarp = true;
-    }
-  }
-
-  return { destX, destY, recPlat, useWarp };
-}
-
-function pickWeightedBotAction(candidates) {
-  if (!Array.isArray(candidates) || candidates.length === 0) return null;
-  const totalWeight = candidates.reduce((sum, c) => sum + Math.max(0.001, c.weight || 0), 0);
-  let r = Math.random() * totalWeight;
-  for (const c of candidates) {
-    r -= Math.max(0.001, c.weight || 0);
-    if (r <= 0) return c;
-  }
-  return candidates[candidates.length - 1];
-}
-
-function buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, isRecovering) {
-  const candidates = [];
-  const dx = target ? ((target.x + target.w * 0.5) - (bot.x + bot.w * 0.5)) : 0;
-  const dy = target ? ((target.y + target.h * 0.5) - (bot.y + bot.h * 0.5)) : 0;
-  const absDx = target ? Math.abs(dx) : Infinity;
-  const absDy = target ? Math.abs(dy) : Infinity;
-  const alignedHeight = absDy <= 42;
-
-  if (canUseEnhanceAction(bot, nowMs) && lv >= 3) {
-    const lvFactor = 1 - (bot.enhanceLevel || 0) * 0.14;
-    candidates.push({
-      type: "enhance",
-      weight: Math.max(0.004, (isRecovering ? 0.045 : 0.022) * (0.5 + lvRatio) * lvFactor)
-    });
-  }
-
-  if (canUseSummonAction(bot, nowMs) && lv >= 3) {
-    candidates.push({
-      type: "summon",
-      weight: (isRecovering ? 0.04 : 0.022) * (0.5 + lvRatio)
-    });
-  }
-
-  if (!isRecovering && bot.onGround && canUseTrapAction(bot, nowMs) && lv >= 3) {
-    const chosenMode = (target && target.percent >= 85)
-      ? "explosion"
-      : (absDx < 130 ? (Math.random() < 0.55 ? "stun" : "wind") : "explosion");
-    candidates.push({
-      type: "trap",
-      mode: chosenMode,
-      weight: (0.024 + lvRatio * 0.03)
-    });
-  }
-
-  if (bot.charKey === "elementalist" && lv >= 3) {
-    const mp = bot.mp || 0;
-    if (bot.percent >= 65 && canUseElementMagicMode(bot, "heal")) {
-      candidates.push({
-        type: "magic",
-        mode: "heal",
-        weight: (isRecovering ? 0.08 : 0.045) * (0.5 + lvRatio)
-      });
-    }
-    if (absDx < 250 && alignedHeight && canUseElementMagicMode(bot, "fire")) {
-      candidates.push({
-        type: "magic",
-        mode: "fire",
-        weight: 0.045 * (0.45 + lvRatio * 0.8)
-      });
-    }
-    if (absDx < 240 && alignedHeight && canUseElementMagicMode(bot, "ice") && (!mainPlayer || !mainPlayer.frozen)) {
-      candidates.push({
-        type: "magic",
-        mode: "ice",
-        weight: lv >= 5 ? 0.036 * (0.45 + lvRatio * 0.8) : 0.015
-      });
-    }
-    if (mp >= 90 && absDx < 185 && lv >= 7 && canUseElementMagicMode(bot, "magic")) {
-      candidates.push({
-        type: "magic",
-        mode: "magic",
-        weight: 0.03 * lvRatio
-      });
-    }
-  }
-
-  if (!isRecovering && target && canUseStandardLight(bot)) {
-    if (absDx <= 36 && dy < -18 && dy >= -54) {
-      candidates.push({
-        type: "light",
-        dir: "up",
-        weight: 0.05 + lvRatio * 0.09
-      });
-    } else if (absDx <= 36 && dy > 18 && dy <= 48) {
-      candidates.push({
-        type: "light",
-        dir: "down",
-        weight: 0.045 + lvRatio * 0.08
-      });
-    }
-    const lightRangeX = bot.charKey === "mage" ? 350 : (bot.charKey === "fighter" ? 64 : 58);
-    const lightRangeY = bot.charKey === "mage" ? 34 : 42;
-    if (absDx <= lightRangeX && absDy <= lightRangeY) {
-      let lightWeight = 0.035 + lvRatio * 0.095;
-      if (bot.charKey === "fighter") lightWeight *= 1.35;
-      if (bot.charKey === "guardian") lightWeight *= 1.15;
-      if (bot.charKey === "mage" && absDx < 36) lightWeight *= 0.45;
-      candidates.push({
-        type: "light",
-        dir: "side",
-        weight: lightWeight
-      });
-    }
-  }
-
-  if (!isRecovering && target && canUseStandardSmash(bot) && alignedHeight) {
-    const botHammerCrit = bot.charKey === "hammer" && isHammerCritState(bot, nowMs);
-    const smashRangeX = botHammerCrit ? 88 : (bot.charKey === "hammer" ? 72 : 66);
-    if (absDx <= smashRangeX) {
-      if (botHammerCrit) {
-        candidates.push({
-          type: "smash_instant",
-          chargeRatio: 0.12,
-          weight: 0.09 + lvRatio * 0.12
-        });
-      } else if (lv >= 5) {
-        const baseSmashW = (0.012 + lvRatio * 0.032) * (bot.charKey === "hammer" ? 1.2 : 0.9);
-        if (lv >= 8 && Math.random() < 0.25) {
-          candidates.push({ type: "smash_charge", weight: baseSmashW });
-        } else {
-          candidates.push({ type: "smash_instant", chargeRatio: 0.08, weight: baseSmashW });
-        }
-      }
-    }
-  }
-
-  return candidates;
-}
-
-function updatePracticeBot(dtScale, nowMs = performance.now()) {
-  if (!isPracticeMode || phase !== "playing" || isPracticeStopped) return;
-  const bot = players[2];
-  if (!bot || !bot.active || bot.stocks <= 0) return;
-
-  const spec = CHAR_SPECS[bot.charKey] || CHAR_SPECS.fighter;
-  const maxJumps = getMaxJumpsForPlayer(bot);
-  const lv = Math.max(1, Math.min(10, practiceBotLevel));
-  const lvRatio = (lv - 1) / 9;
-
-  if ((bot.invincibleTimer || 0) > 0) bot.invincibleTimer = Math.max(0, bot.invincibleTimer - dtScale);
-  if (bot.charKey === "elementalist") bot.mp = Math.min(MAX_MP, (bot.mp ?? MAX_MP) + (1 / 60) * dtScale);
-  if (bot.charKey === "hammer") ensureHammerCritState(bot, nowMs);
-
-  let wantMoveDir = 0;
-  let wantShield = false;
-  let wantDropThrough = false;
-  let isRecovering = false;
-
-  const target = findBotCombatTarget(bot);
-  const mainPlayer = players[1];
-
-  if (bot.stun <= 0 && !bot.burnedOut && !bot.frozen) {
-    if (canUseUltimateAction(bot) && target) {
-      const bdx = Math.abs((target.x + target.w * 0.5) - (bot.x + bot.w * 0.5));
-      const bdy = Math.abs((target.y + target.h * 0.5) - (bot.y + bot.h * 0.5));
-      if (bdx <= 240 && bdy <= 130 && Math.random() < (0.04 + lvRatio * 0.08) * dtScale) {
-        bot.facing = ((target.x + target.w * 0.5) >= (bot.x + bot.w * 0.5)) ? 1 : -1;
-        executeUltimateForEntity(bot, nowMs);
-      }
-    }
-    const botCenterX = bot.x + bot.w * 0.5;
-    const botCenterY = bot.y + bot.h * 0.5;
-    const botFootY = bot.y + bot.h;
-    const ground = findSolidBeneath(botCenterX, botFootY);
-    const dropPlat = findDropThroughPlatformBeneath(botCenterX, botFootY);
-    const onGround = Math.abs(botFootY - ground.y) <= 8;
-
-    const nearBlastZone = (bot.x < 95 || bot.x + bot.w > canvas.width - 95 || bot.y > canvas.height - 95);
-    const offGroundOrFalling = (!onGround && (botFootY > ground.y + 14 || bot.vy > 1.4 || botCenterX < ground.x - 10 || botCenterX > ground.x + ground.w + 10)) || nearBlastZone;
-
-    if (offGroundOrFalling) {
-      isRecovering = true;
-      bot.smashCharging = false;
-
-      const { destX, destY, recPlat, useWarp } = chooseBotRecoveryDestination(bot, target);
-      const dxToDest = destX - botCenterX;
-      const recDir = Math.abs(dxToDest) > 6 ? Math.sign(dxToDest) : (canvas.width * 0.5 >= botCenterX ? 1 : -1);
-      bot.facing = recDir;
-
-      const airControl = 0.72 + lvRatio * 0.28;
-      wantMoveDir = recDir * airControl;
-
-      if (dropPlat && (destY > bot.y + 20 || (target && (target.y + target.h * 0.5) - botCenterY > 28)) && bot.dropThroughTimer <= 0) {
-        wantDropThrough = true;
-      }
-
-      const recCandidates = buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, true).filter(
-        c => c.type === "enhance" || c.type === "summon" || (c.type === "magic" && c.mode === "heal")
-      );
-      const chosenRecAction = pickWeightedBotAction(recCandidates);
-      if (chosenRecAction && Math.random() < 0.25 * dtScale) {
-        if (chosenRecAction.type === "enhance") tryEnhanceSelfForEntity(bot);
-        else if (chosenRecAction.type === "summon") trySummonCloneForRole(2);
-        else if (chosenRecAction.type === "magic") {
-          bot.magicMode = chosenRecAction.mode;
-          castSelectedElementMagic(bot);
-        }
-      }
-
-      const belowPlatform = botFootY > recPlat.y + 12;
-      const fallingFast = bot.vy > 2.4;
-      const criticalHeight = bot.y > canvas.height - 135 || bot.x < 70 || bot.x > canvas.width - 70;
-      const keepLastJump = bot.jumps === 1 && !criticalHeight && bot.vy < 5.5 && lv >= 4;
-
-      if (bot.jumps > 0 && !keepLastJump && ((belowPlatform && fallingFast) || criticalHeight || (!useWarp && bot.vy > 4.2))) {
-        bot.vy = spec.jumpPower;
-        bot.jumps--;
-        bot.onGround = false;
-      }
-    } else if (target) {
-      const targetCenterX = target.x + target.w * 0.5;
-      const targetCenterY = target.y + target.h * 0.5;
-      const dx = targetCenterX - botCenterX;
-      const dy = targetCenterY - botCenterY;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-
-      const moveDir = absDx > 6 ? Math.sign(dx) : 0;
-      if (moveDir !== 0 && !bot.smashCharging) bot.facing = moveDir;
-
-      if (lv >= 4 && !bot.smashCharging && !bot.burnedOut && bot.shieldHp > 24 && absDx < 105 && absDy < 48) {
-        const threatActive = (mainPlayer && mainPlayer.active && mainPlayer.stocks > 0 && (mainPlayer.atkTimer > 0 || mainPlayer.smashCharging));
-        if (threatActive && Math.random() < (0.04 + lvRatio * 0.16) * dtScale) {
-          wantShield = true;
-        }
-      }
-
-      if (!wantShield) {
-        const approachFactor = 0.65 + lvRatio * 0.35;
-        const preferredDist = bot.charKey === "mage" ? 210 : (bot.charKey === "trapper" ? 95 : 42);
-        if (bot.smashCharging) {
-          wantMoveDir = 0;
-        } else if (bot.charKey === "mage" && absDx < 120 && absDy < 45 && lv >= 5) {
-          const awayDir = dx >= 0 ? -1 : 1;
-          const safeX = botCenterX + awayDir * 24;
-          if (safeX > ground.x + 24 && safeX < ground.x + ground.w - 24) {
-            wantMoveDir = awayDir * 0.7 * approachFactor;
-          }
-        } else if (absDx > preferredDist) {
-          wantMoveDir = moveDir * approachFactor;
-        }
-
-        if (bot.charKey === "trapper" && onGround && absDx < 170 && Math.random() < (0.02 + lvRatio * 0.03) * dtScale) {
-          const stepDir = dx >= 0 ? -1 : 1;
-          const nextTrapX = botCenterX + stepDir * 28;
-          if (nextTrapX > ground.x + 20 && nextTrapX < ground.x + ground.w - 20) {
-            wantMoveDir = stepDir * 0.65;
-          }
-        }
-
-        if (dropPlat && dy > 32 && absDx < 110 && bot.dropThroughTimer <= 0 && lv >= 4 && Math.random() < (0.04 + lvRatio * 0.08) * dtScale) {
-          wantDropThrough = true;
-        }
-
-        if (!wantDropThrough && dy < -52 && absDx < 130 && bot.jumps > 0 && bot.vy >= -1.5 && Math.random() < (0.02 + lvRatio * 0.055) * dtScale) {
-          bot.vy = spec.jumpPower;
-          bot.jumps--;
-          bot.onGround = false;
-        }
-
-        if (bot.smashCharging) {
-          const chargedMs = Date.now() - (bot.smashChargeStart || Date.now());
-          const targetChargeMs = 220 + Math.floor((1 - lvRatio) * 520) + Math.floor(Math.random() * 260);
-          if (chargedMs >= targetChargeMs || absDx > 95) {
-            bot.smashCharging = false;
-            executeAttackForEntity(bot, true, Math.min(chargedMs / 1500, 1.0), null);
-          }
-        } else {
-          const candidates = buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, false);
-          const chosen = pickWeightedBotAction(candidates);
-          if (chosen && Math.random() < (0.28 + lvRatio * 0.45) * dtScale) {
-            if (chosen.type === "enhance") {
-              tryEnhanceSelfForEntity(bot);
-            } else if (chosen.type === "summon") {
-              trySummonCloneForRole(2);
-            } else if (chosen.type === "trap") {
-              bot.trapMode = chosen.mode;
-              tryPlaceTrapForEntity(bot, nowMs);
-            } else if (chosen.type === "magic") {
-              bot.magicMode = chosen.mode;
-              castSelectedElementMagic(bot);
-            } else if (chosen.type === "light") {
-              if (chosen.dir === "side" && moveDir !== 0) bot.facing = moveDir;
-              executeAttackForEntity(bot, false, 0, chosen.dir);
-            } else if (chosen.type === "smash_instant") {
-              if (moveDir !== 0) bot.facing = moveDir;
-              executeAttackForEntity(bot, true, chosen.chargeRatio || 0.1, null);
-            } else if (chosen.type === "smash_charge") {
-              if (moveDir !== 0) bot.facing = moveDir;
-              bot.smashCharging = true;
-              bot.smashChargeStart = Date.now();
-            }
-          }
-        }
-      }
-    }
-  } else {
-    bot.smashCharging = false;
-  }
-
-  if (bot.burnedOut) {
-    bot.shieldHp = Math.min(MAX_SHIELD, bot.shieldHp + 0.55 * dtScale);
-    if (bot.shieldHp >= MAX_SHIELD) {
-      bot.burnedOut = false;
-      bot.shieldHp = MAX_SHIELD;
-    }
-  } else if (wantShield && bot.stun <= 0 && !bot.frozen && bot.shieldHp > 0) {
-    bot.shielding = true;
-    bot.vx *= Math.pow(0.75, dtScale);
-    bot.shieldHp = Math.max(0, bot.shieldHp - spec.shieldDrain * dtScale);
-    if (bot.shieldHp <= 0) triggerBurnout(bot);
-  } else {
-    bot.shielding = false;
-    bot.shieldHp = Math.min(MAX_SHIELD, bot.shieldHp + 0.35 * dtScale);
-  }
-
-  if (bot.stun > 0) {
-    bot.stun = Math.max(0, bot.stun - dtScale);
-    if (bot.stun === 0) bot.frozen = false;
-    bot.vx *= Math.pow(0.96, dtScale);
-  } else if (!bot.shielding) {
-    const moveAcc = getEffectiveMoveAcc(bot, spec);
-    if (Math.abs(wantMoveDir) > 0.01) bot.vx += wantMoveDir * moveAcc * dtScale;
-    const damp = bot.onIce ? 0.94 : spec.friction;
-    bot.vx *= Math.pow(damp, dtScale);
-  }
-
-  if (bot.dropThroughTimer > 0) bot.dropThroughTimer = Math.max(0, bot.dropThroughTimer - dtScale);
-  const prevX = bot.x, prevY = bot.y;
-  bot.vy += 0.56 * dtScale;
-  bot.x += bot.vx * dtScale;
-  bot.y += bot.vy * dtScale;
-
-  resolveStageCollisions(bot, prevX, prevY, maxJumps, bot.dropThroughTimer > 0, dtScale);
-
-  if (bot.atkTimer > 0) { bot.atkTimer = Math.max(0, bot.atkTimer - dtScale); if (bot.atkTimer === 0) bot.hasHit = false; }
-  if (bot.cooldown > 0) bot.cooldown = Math.max(0, bot.cooldown - dtScale);
-
-  processEntityMeleeHits(bot, nowMs);
-
-  if (bot.x < -160 || bot.x > canvas.width + 160 || bot.y > canvas.height + 160) {
-    handleEntityRingOut(bot);
-  }
-}
-
-function update(dtScale) {
-  const nowMs = performance.now();
-  if (isPracticeMode && isPracticeStopped) {
-    return;
-  }
-
-  if (phase === "playing") {
-    updateStageGimmicks(dtScale);
-  } else {
-    initStageGimmicks(getCurrentStage(), false);
-  }
-
-  updateTraps(dtScale);
-  updateUltEffects(dtScale);
-
-  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) {
-    updateBeams(dtScale); updateRings(dtScale);
-    return;
-  }
-
-  if (phase === "playing") {
-    updatePracticeBot(dtScale, nowMs);
-
-    if (!isSpectator && myRole !== 0) {
-      const me = players[myRole];
-      if (me && me.active && me.stocks > 0) {
-        const spec = CHAR_SPECS[me.charKey];
-        const maxJumps = getMaxJumpsForPlayer(me);
-
-        if ((me.invincibleTimer || 0) > 0) me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
-        if (me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp ?? MAX_MP) + (1 / 60) * dtScale);
-        if (me.charKey === "hammer") ensureHammerCritState(me, nowMs);
-
-        if (me.burnedOut) {
-          me.shieldHp = Math.min(MAX_SHIELD, me.shieldHp + 0.55 * dtScale);
-          if (me.shieldHp >= MAX_SHIELD) {
-            me.burnedOut = false;
-            me.shieldHp = MAX_SHIELD;
-          }
-        } else if (down["KeyJ"] && me.stun <= 0 && !me.frozen && me.shieldHp > 0) {
-          me.shielding = true; me.smashCharging = false;
-          me.vx *= Math.pow(0.75, dtScale);
-          me.shieldHp = Math.max(0, me.shieldHp - spec.shieldDrain * dtScale);
-          if (me.shieldHp <= 0) triggerBurnout(me);
-        } else {
-          me.shielding = false;
-          me.shieldHp = Math.min(MAX_SHIELD, me.shieldHp + 0.35 * dtScale);
-        }
-
-        if (me.stun > 0) {
-          me.stun = Math.max(0, me.stun - dtScale);
-          if (me.stun === 0) me.frozen = false;
-          me.vx *= Math.pow(0.96, dtScale);
-        } else if (!me.shielding) {
-          const moveAcc = getEffectiveMoveAcc(me, spec);
-          if (down["KeyA"] && !me.smashCharging) { me.vx -= moveAcc * dtScale; me.facing = -1; }
-          if (down["KeyD"] && !me.smashCharging) { me.vx += moveAcc * dtScale; me.facing = 1; }
-          const damp = me.onIce ? 0.94 : spec.friction;
+      if (me.smashCharging) {
+        me.smashChargeRatio = Math.min((Date.now() - me.smashChargeStart) / 1500, 1.0);
+        me.vx *= Math.pow(0.75, dtScale);
+      } else {
+        const moveAcc = getEffectiveMoveAcc(me, spec);
+        if (down["KeyA"]) { me.vx -= moveAcc * dtScale; me.facing = -1; }
+        if (down["KeyD"]) { me.vx += moveAcc * dtScale; me.facing = 1; }
+        if (!down["KeyA"] && !down["KeyD"]) {
+          const damp = me.onGround && me.onIce ? 0.975 : spec.friction;
           me.vx *= Math.pow(damp, dtScale);
         }
-
-        if (me.dropThroughTimer > 0) me.dropThroughTimer = Math.max(0, me.dropThroughTimer - dtScale);
-        const prevX = me.x, prevY = me.y;
-        me.vy += 0.56 * dtScale;
-        me.x += me.vx * dtScale; me.y += me.vy * dtScale;
-
-        resolveStageCollisions(me, prevX, prevY, maxJumps, me.dropThroughTimer > 0 || !!down["KeyS"], dtScale);
-
-        if (me.atkTimer > 0) { me.atkTimer = Math.max(0, me.atkTimer - dtScale); if (me.atkTimer === 0) me.hasHit = false; }
-        if (me.cooldown > 0) me.cooldown = Math.max(0, me.cooldown - dtScale);
-
-        processEntityMeleeHits(me, nowMs);
-
-        if (me.x < -160 || me.x > canvas.width + 160 || me.y > canvas.height + 160) {
-          handleEntityRingOut(me);
-        }
-        sendMyState(me, false);
       }
     }
-    updateMyClone(dtScale, nowMs);
-    updateBurnDebuffs(dtScale);
   }
 
-  updateBeams(dtScale);
-  updateRings(dtScale);
+  const prevX = me.x;
+  const prevY = me.y;
+  me.vy += 0.55 * dtScale;
+  me.x += me.vx * dtScale;
+  me.y += me.vy * dtScale;
+  resolveStageCollisions(me, prevX, prevY, maxJumps, me.dropThroughTimer > 0, dtScale);
+
+  if (me.atkTimer > 0) me.atkTimer = Math.max(0, me.atkTimer - dtScale);
+  if (me.cooldown > 0) me.cooldown = Math.max(0, me.cooldown - dtScale);
+
+  if (me.atkTimer > 0 && !me.hasHit) {
+    const hb = getMeleeHitbox(me, performance.now());
+    if (hb) {
+      const originX = me.x + me.w * 0.5;
+      const originY = me.y + me.h * 0.5;
+      for (const r of getParticipantRoles()) {
+        if (r === myRole || isSameTeam(myRole, r)) continue;
+        const opp = players[r];
+        if (!opp || !opp.active || opp.stocks <= 0) continue;
+        if (doesMeleeHitEntity(hb, originX, originY, opp)) {
+          me.hasHit = true;
+          if (hb.isSmash) {
+            const isHammer = me.charKey === "hammer";
+            const isCrit = isHammer && isHammerCritState(me, performance.now());
+            const chargeBonus = 1 + (me.smashChargeRatio || 0) * 0.85;
+            const enhanceMult = me.charKey === "enhancer" ? (1 + (me.enhanceLevel || 0) * 0.22) : 1;
+            const critBonusDmg = isCrit ? HAMMER_CRIT_BONUS_DMG : 0;
+            const dmg = Math.round(spec.smashDmg * chargeBonus * enhanceMult) + critBonusDmg;
+            const basePower = (isCrit ? 15.5 : 10.5) * (1 + (me.smashChargeRatio || 0) * 0.65) * enhanceMult;
+            const upMult = hb.atkDir === "up" ? 0.92 : (hb.atkDir === "down" ? 0.35 : 0.65);
+            const hitDir = hb.atkDir === "side" ? me.facing : (opp.x + opp.w * 0.5 >= originX ? 1 : -1);
+            sendHitFromActorToTarget(myRole, opp.role, dmg, basePower, hitDir, null, upMult, { pierceGuard: isHammer, wasSmash: true, wasCrit: isCrit });
+          } else {
+            const lightStats = getEffectiveLightStats(me, spec);
+            const upMult = hb.atkDir === "up" ? 0.85 : (hb.atkDir === "down" ? 0.25 : 0.55);
+            const hitDir = hb.atkDir === "side" ? me.facing : (opp.x + opp.w * 0.5 >= originX ? 1 : -1);
+            sendHitFromActorToTarget(myRole, opp.role, lightStats.dmg, lightStats.basePower, hitDir, null, upMult, { wasLight: true });
+          }
+          break;
+        }
+      }
+      if (!me.hasHit) {
+        if (hb.isSmash) {
+          const isHammer = me.charKey === "hammer";
+          const isCrit = isHammer && isHammerCritState(me, performance.now());
+          const chargeBonus = 1 + (me.smashChargeRatio || 0) * 0.85;
+          const enhanceMult = me.charKey === "enhancer" ? (1 + (me.enhanceLevel || 0) * 0.22) : 1;
+          const critBonusDmg = isCrit ? HAMMER_CRIT_BONUS_DMG : 0;
+          const dmg = Math.round(spec.smashDmg * chargeBonus * enhanceMult) + critBonusDmg;
+          const basePower = (isCrit ? 15.5 : 10.5) * (1 + (me.smashChargeRatio || 0) * 0.65) * enhanceMult;
+          const hitHandled = checkHitEnemyClonesByBoxForActor(myRole, hb, dmg, basePower, me.facing, null, 0.65, null, originX, originY, false, { wasSmash: true, wasCrit: isCrit });
+          if (hitHandled) me.hasHit = true;
+        } else {
+          const lightStats = getEffectiveLightStats(me, spec);
+          const hitHandled = checkHitEnemyClonesByBoxForActor(myRole, hb, lightStats.dmg, lightStats.basePower, me.facing, null, 0.55, null, originX, originY, false, { wasLight: true });
+          if (hitHandled) me.hasHit = true;
+        }
+      }
+    }
+  }
+
+  if (me.y > 650 || me.x < -140 || me.x > 1220) {
+    me.stocks = Math.max(0, me.stocks - 1);
+    if (me.stocks > 0) {
+      const sp = getSpawnPoint(myRole);
+      me.x = sp.x; me.y = sp.y;
+      me.vx = 0; me.vy = 0; me.percent = 0; me.stun = 0;
+      me.jumps = maxJumps; me.facing = sp.facing;
+      me.smashCharging = false; me.smashChargeRatio = 0;
+      me.enhanceLevel = 0; me.enhanceCooldownUntil = 0;
+      resetHammerCritAndCharge(me);
+      me.guardianHits = 0; me.invincibleTimer = RESPAWN_INVINCIBLE_FRAMES;
+      me.summonCooldownUntil = 0; me.hasClone = false;
+      delete clones[myRole];
+      sendCloneSync(null);
+      me.mp = MAX_MP; me.frozen = false;
+      me.shielding = false; me.shieldHp = MAX_SHIELD; me.burnedOut = false;
+    } else {
+      me.shielding = false;
+      me.smashCharging = false;
+    }
+    sendMyState(me, true);
+    checkMatchEndCondition();
+  }
+
+  if (isPracticeMode && players[2] && players[2].active && players[2].stocks > 0) {
+    const bot = players[2];
+    const bSpec = CHAR_SPECS[bot.charKey] || CHAR_SPECS.fighter;
+    const bMaxJumps = getMaxJumpsForPlayer(bot);
+
+    if ((bot.invincibleTimer || 0) > 0) bot.invincibleTimer = Math.max(0, bot.invincibleTimer - dtScale);
+    if (bot.dropThroughTimer > 0) bot.dropThroughTimer = Math.max(0, bot.dropThroughTimer - dtScale);
+    if (bot.charKey === "elementalist") bot.mp = Math.min(MAX_MP, (bot.mp || 0) + 0.16 * dtScale);
+
+    if (bot.stun > 0) {
+      bot.stun = Math.max(0, bot.stun - dtScale);
+      bot.shielding = false;
+      bot.smashCharging = false;
+      if (bot.stun === 0) bot.frozen = false;
+    } else {
+      bot.frozen = false;
+      if (bot.shielding) {
+        bot.vx *= Math.pow(0.75, dtScale);
+        bot.shieldHp = Math.max(0, bot.shieldHp - bSpec.shieldDrain * dtScale);
+        if (bot.shieldHp <= 0) triggerBurnout(bot);
+      } else if (!bot.shieldHp || bot.shieldHp < MAX_SHIELD) {
+        bot.shieldHp = Math.min(MAX_SHIELD, (bot.shieldHp || 0) + (bot.burnedOut ? 0.35 : 0.22) * dtScale);
+        if (bot.burnedOut && bot.shieldHp >= 40) bot.burnedOut = false;
+      }
+      updatePracticeBot(bot, me, dtScale);
+    }
+
+    const bPrevX = bot.x;
+    const bPrevY = bot.y;
+    bot.vy += 0.55 * dtScale;
+    bot.x += bot.vx * dtScale;
+    bot.y += bot.vy * dtScale;
+    if (!bot.shielding && !bot.stun) {
+      bot.vx *= Math.pow(bSpec.friction, dtScale);
+    }
+    resolveStageCollisions(bot, bPrevX, bPrevY, bMaxJumps, bot.dropThroughTimer > 0, dtScale);
+
+    if (bot.atkTimer > 0) bot.atkTimer = Math.max(0, bot.atkTimer - dtScale);
+    if (bot.cooldown > 0) bot.cooldown = Math.max(0, bot.cooldown - dtScale);
+
+    if (bot.atkTimer > 0 && !bot.hasHit) {
+      const bHb = getMeleeHitbox(bot, performance.now());
+      if (bHb && me.stocks > 0) {
+        const bOriginX = bot.x + bot.w * 0.5;
+        const bOriginY = bot.y + bot.h * 0.5;
+        if (doesMeleeHitEntity(bHb, bOriginX, bOriginY, me)) {
+          bot.hasHit = true;
+          if (bHb.isSmash) {
+            const enhanceMult = bot.charKey === "enhancer" ? (1 + (bot.enhanceLevel || 0) * 0.22) : 1;
+            const dmg = Math.round(bSpec.smashDmg * (1 + (bot.smashChargeRatio || 0) * 0.5) * enhanceMult);
+            const basePower = 9.5 * enhanceMult;
+            const upMult = bHb.atkDir === "up" ? 0.85 : 0.62;
+            sendHitFromActorToTarget(2, 1, dmg, basePower, bot.facing, null, upMult, { pierceGuard: bot.charKey === "hammer", wasSmash: true });
+          } else {
+            const lightStats = getEffectiveLightStats(bot, bSpec);
+            const upMult = bHb.atkDir === "up" ? 0.8 : 0.52;
+            sendHitFromActorToTarget(2, 1, lightStats.dmg, lightStats.basePower, bot.facing, null, upMult, { wasLight: true });
+          }
+        }
+      }
+    }
+
+    if (bot.y > 650 || bot.x < -140 || bot.x > 1220) {
+      bot.stocks = Math.max(0, bot.stocks - 1);
+      if (bot.stocks > 0) {
+        const bSp = getSpawnPoint(2);
+        bot.x = bSp.x; bot.y = bSp.y;
+        bot.vx = 0; bot.vy = 0; bot.percent = 0; bot.stun = 0;
+        bot.jumps = bMaxJumps; bot.facing = bSp.facing;
+        bot.invincibleTimer = RESPAWN_INVINCIBLE_FRAMES;
+        bot.mp = MAX_MP; bot.frozen = false;
+        bot.shielding = false; bot.shieldHp = MAX_SHIELD; bot.burnedOut = false;
+      }
+      checkMatchEndCondition();
+    }
+  }
+
+  sendMyState(me, false);
 }
 
-function drawPlayerFigure(p, displayName, isMe, now, overrideColor = null, isCloneEntity = false) {
-  const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
-  const cx = p.x + p.w / 2;
-  const baseColor = overrideColor || sanitizeColorHex(p.color || spec.color, p.role || 1);
-  const drawColor = p.frozen ? "#7dd3fc" : (p.burnedOut ? "#64748b" : baseColor);
-  const isCritNow = p.charKey === "hammer" && isHammerCritState(p, now);
-
-  ctx.save();
-  if (isCloneEntity) ctx.globalAlpha = 0.62;
-  else if ((p.invincibleTimer || 0) > 0) ctx.globalAlpha = Math.sin(now / 55) > 0 ? 0.92 : 0.35;
-
-  if (p.shielding && !p.burnedOut) {
-    const r = Math.max(26, Math.min(44, 24 + (p.shieldHp / MAX_SHIELD) * 18));
-    ctx.beginPath();
-    ctx.arc(p.x + p.w / 2, p.y + p.h / 2, r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(56, 189, 248, 0.25)";
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#7dd3fc";
-    ctx.stroke();
-  }
-
-  if (p.burnedOut) {
-    ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(p.x + p.w / 2, p.y - 10, 7, 0, Math.PI * 1.65);
-    ctx.stroke();
-  }
-
-  if (p.charKey === "enhancer" && (p.enhanceLevel || 0) > 0) {
-    ctx.strokeStyle = "#34d399"; ctx.lineWidth = 2.5;
-    ctx.strokeRect(p.x - 3, p.y - 3, p.w + 6, p.h + 6);
-  }
-
-  if (isCritNow) {
-    ctx.strokeStyle = "#facc15"; ctx.lineWidth = 3;
-    ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
-  }
-
-  ctx.fillStyle = drawColor;
-  ctx.fillRect(p.x, p.y, p.w, p.h);
-
-  if (p.frozen) {
-    ctx.strokeStyle = "#e0f2fe"; ctx.lineWidth = 2;
-    ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
-  }
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(p.facing === 1 ? p.x + p.w - 11 : p.x + 3, p.y + 9, 8, 8);
-  ctx.fillStyle = "#0f172a";
-  ctx.fillRect(p.facing === 1 ? p.x + p.w - 7 : p.x + 5, p.y + 11, 4, 4);
-
-  const hb = getMeleeHitbox(p, now);
-  if (hb) {
-    ctx.fillStyle = isCritNow ? "rgba(250, 204, 21, 0.65)" : (hb.isSmash ? "rgba(251, 191, 36, 0.55)" : "rgba(255, 255, 255, 0.45)");
-    ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
-  }
-
-  if (p.smashCharging) {
-    const ratio = Math.min((Date.now() - p.smashChargeStart) / 1500, 1.0);
-    ctx.fillStyle = "#1e293b"; ctx.fillRect(p.x - 3, p.y - 16, p.w + 6, 6);
-    ctx.fillStyle = "#fbbf24"; ctx.fillRect(p.x - 3, p.y - 16, (p.w + 6) * ratio, 6);
-  }
-
-  ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center";
-  const labelY = p.smashCharging ? p.y - 22 : p.y - 8;
-  ctx.fillStyle = isCritNow ? "#facc15" : (isMe ? "#fde047" : "#f8fafc");
-  ctx.fillText(displayName, cx, labelY);
-  ctx.textAlign = "left";
-  ctx.restore();
-}
-
-function drawPublicLobbyScene(now) {
-  ctx.save();
-  ctx.fillStyle = "#141c2b";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = "#1e293b";
-  ctx.fillRect(36, 28, canvas.width - 72, canvas.height - 56);
-  ctx.strokeStyle = "#38bdf8";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(36, 28, canvas.width - 72, canvas.height - 56);
-
-  ctx.fillStyle = "#38bdf8";
-  ctx.font = "bold 24px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(`🏛️ ${LOBBY_SECTION_NAME}`, canvas.width * 0.5, 76);
-
-  ctx.fillStyle = "#cbd5e1";
-  ctx.font = "14px sans-serif";
-  ctx.fillText("合言葉を入力して「合言葉入室」を押すと、最大4人の対戦部屋へ移動できます（空欄のままなら公開待機ロビー）。", canvas.width * 0.5, 108);
-
-  const memberRoles = activeRoles.length > 0 ? activeRoles : (myRole > 0 ? [myRole] : []);
-  ctx.fillStyle = "#fbbf24";
-  ctx.font = "bold 16px sans-serif";
-  ctx.fillText(`現在のロビー入室人数：${memberRoles.length} / ${MAX_LOBBY_PLAYERS} 人`, canvas.width * 0.5, 146);
-
-  if (memberRoles.length === 0) {
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "15px sans-serif";
-    ctx.fillText("ロビー接続中...", canvas.width * 0.5, 250);
-  } else {
-    const cols = 6;
-    const cellW = 152;
-    const cellH = 44;
-    const totalW = Math.min(memberRoles.length, cols) * cellW;
-    const startX = canvas.width * 0.5 - totalW * 0.5;
-    const startY = 178;
-
-    memberRoles.forEach((r, idx) => {
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      const bx = startX + col * cellW + 6;
-      const by = startY + row * cellH;
-      if (by + cellH > canvas.height - 44) return;
-
-      const isSelf = r === myRole;
-      const pName = isSelf ? (myName || `Player${r}`) : (players[r] && players[r].name ? players[r].name : `Player${r}`);
-      const pColor = isSelf ? myColor : (players[r] && players[r].color ? players[r].color : sanitizeColorHex(PLAYER_COLORS[(r % 4) + 1], (r % 4) + 1));
-
-      ctx.fillStyle = isSelf ? "#0f2942" : "#0f172a";
-      ctx.fillRect(bx, by, cellW - 12, cellH - 8);
-      ctx.strokeStyle = isSelf ? "#fbbf24" : "#334155";
-      ctx.lineWidth = isSelf ? 2 : 1;
-      ctx.strokeRect(bx, by, cellW - 12, cellH - 8);
-
-      ctx.fillStyle = pColor;
-      ctx.beginPath();
-      ctx.arc(bx + 16, by + (cellH - 8) * 0.5, 6, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = isSelf ? "#fde047" : "#f8fafc";
-      ctx.font = isSelf ? "bold 13px sans-serif" : "13px sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(pName, bx + 28, by + (cellH - 8) * 0.5 + 4);
-    });
-  }
-
-  ctx.restore();
-}
-
-function draw() {
-  const now = performance.now();
-  if (isPublicLobbyRoom()) {
-    drawPublicLobbyScene(now);
-    return;
-  }
-
+function drawStage() {
   const st = getCurrentStage();
   initStageGimmicks(st, false);
-  ctx.fillStyle = st.bgColor || "#273244";
+  ctx.fillStyle = st.bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   for (const solid of (st.solids || [])) {
-    ctx.fillStyle = st.groundColor || "#94a3b8";
+    ctx.fillStyle = st.groundColor;
     ctx.fillRect(solid.x, solid.y, solid.w, solid.h);
-    ctx.fillStyle = st.groundBorder || "#cbd5e1";
+    ctx.fillStyle = st.groundBorder;
     ctx.fillRect(solid.x, solid.y, solid.w, 6);
   }
   for (const plat of (st.platforms || [])) {
-    ctx.fillStyle = st.platColor || "#64748b";
+    ctx.fillStyle = st.platColor;
     ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
-    ctx.fillStyle = "#94a3b8";
+    ctx.fillStyle = st.groundBorder;
     ctx.fillRect(plat.x, plat.y, plat.w, 3);
   }
 
   for (const mp of (st.movingPlatforms || [])) {
-    ctx.fillStyle = "#0ea5e9";
+    ctx.fillStyle = "#38bdf8";
     ctx.fillRect(mp.x, mp.y, mp.w, mp.h);
-    ctx.fillStyle = "#bae6fd";
-    ctx.fillRect(mp.x, mp.y, mp.w, 3);
-  }
-
-  for (const sp of (st.springs || [])) {
-    ctx.fillStyle = "#22c55e";
-    ctx.fillRect(sp.x, sp.y, sp.w, sp.h);
-    ctx.fillStyle = "#bbf7d0";
-    ctx.fillRect(sp.x + 4, sp.y, sp.w - 8, 4);
-    ctx.font = "bold 10px sans-serif";
-    ctx.fillStyle = "#dcfce7";
-    ctx.textAlign = "center";
-    ctx.fillText("▲", sp.x + sp.w * 0.5, sp.y - 3);
-    ctx.textAlign = "left";
-  }
-
-  for (const wp of (st.warps || [])) {
-    ctx.save();
-    ctx.strokeStyle = wp.color || "#c084fc";
-    ctx.fillStyle = "rgba(168, 85, 247, 0.22)";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.ellipse(wp.x + wp.w * 0.5, wp.y + wp.h * 0.5, wp.w * 0.45, wp.h * 0.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  for (const hz of (st.hazardZones || [])) {
-    ctx.fillStyle = "rgba(239, 68, 68, 0.78)";
-    ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
-    ctx.fillStyle = "#fde047";
-    ctx.fillRect(hz.x, hz.y, hz.w, 2);
-  }
-
-  for (const ice of (st.iceFloors || [])) {
-    ctx.fillStyle = "rgba(186, 230, 253, 0.55)";
-    ctx.fillRect(ice.x, ice.y, ice.w, ice.h);
+    ctx.fillStyle = "#e0f2fe";
+    ctx.fillRect(mp.x, mp.y, mp.w, 4);
   }
 
   for (const dp of (st.disappearingPlatforms || [])) {
@@ -5829,48 +6123,134 @@ function draw() {
     } else {
       ctx.save();
       ctx.setLineDash([5, 5]);
-      ctx.strokeStyle = "rgba(192, 132, 252, 0.35)";
+      ctx.strokeStyle = "rgba(192, 132, 252, 0.4)";
       ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
       ctx.restore();
     }
   }
 
-  drawTrapsAndEffects(now);
-
-  if (entryBlockedByHost) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.72)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#fbbf24"; ctx.font = "bold 24px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText("ホスト（1P）が部屋に入ると開始・参加できます", canvas.width / 2, canvas.height / 2 - 12);
-    ctx.fillStyle = "#e2e8f0"; ctx.font = "15px sans-serif";
-    ctx.fillText("ホスト入室まで待機中です...", canvas.width / 2, canvas.height / 2 + 22);
-    ctx.textAlign = "left";
-    return;
+  for (const sp of (st.springs || [])) {
+    ctx.fillStyle = "#22c55e";
+    ctx.fillRect(sp.x, sp.y, sp.w, sp.h);
+    ctx.fillStyle = "#bbf7d0";
+    ctx.fillRect(sp.x, sp.y, sp.w, 4);
   }
 
-  if (isRoomFullBlocked) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.78)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#f87171"; ctx.font = "bold 24px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(`合言葉「${currentPassphrase}」は満員（${MAX_BATTLE_PLAYERS}/${MAX_BATTLE_PLAYERS}人）です`, canvas.width / 2, canvas.height / 2 - 10);
-    ctx.fillStyle = "#e2e8f0"; ctx.font = "15px sans-serif";
-    ctx.fillText("別の合言葉を入力するか、公開待機部屋へ戻ってください。", canvas.width / 2, canvas.height / 2 + 24);
-    ctx.textAlign = "left";
-    return;
+  for (const wp of (st.warps || [])) {
+    ctx.save();
+    ctx.strokeStyle = wp.color || "#38bdf8";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(wp.x, wp.y, wp.w, wp.h);
+    ctx.fillStyle = "rgba(56, 189, 248, 0.18)";
+    ctx.fillRect(wp.x, wp.y, wp.w, wp.h);
+    ctx.restore();
   }
 
-  for (const ownerStr of Object.keys(clones)) {
-    const ownerRole = Number(ownerStr);
-    const cl = clones[ownerRole];
-    if (!cl || !cl.active) continue;
-    const ownerColor = getColorOfRole(ownerRole);
-    drawPlayerFigure(cl, `${getDisplayNameOfRole(ownerRole)}の分身(${Math.floor(cl.percent)}%)`, false, now, ownerColor, true);
+  for (const hz of (st.hazardZones || [])) {
+    ctx.fillStyle = "#ef4444";
+    ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
+    ctx.fillStyle = "#fde047";
+    ctx.fillRect(hz.x, hz.y, hz.w, 3);
   }
 
-  for (const r of activeRoles) {
-    if (isRoleSpectating(r)) continue;
-    const p = players[r];
-    if (!p || !p.active || p.stocks <= 0) continue;
-    drawPlayerFigure(p, getDisplayNameOfRole(r), r === myRole, now, getColorOfRole(r), false);
+  for (const ice of (st.iceFloors || [])) {
+    ctx.fillStyle = "rgba(125, 211, 252, 0.55)";
+    ctx.fillRect(ice.x, ice.y, ice.w, ice.h);
   }
+}
+
+function drawPlayerEntity(p, now, isClone = false) {
+  if (!p || (!isClone && (!p.active || p.stocks <= 0))) return;
+  const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
+  const drawColor = isClone ? spec.color : getColorOfRole(p.role);
+  const isHammerCrit = p.charKey === "hammer" && isHammerCritState(p, now);
+  const isHammerAbsCrit = p.charKey === "hammer" && isHammerAbsoluteCritMode(p, now);
+  const hammerAbsSec = isHammerCrit ? getHammerRemainingAbsSec(p, now) : 0;
+
+  if (p.charKey === "enhancer" && (p.enhanceLevel || 0) > 0 && !isClone) {
+    ctx.save();
+    ctx.strokeStyle = "#34d399";
+    ctx.lineWidth = 2 + p.enhanceLevel * 0.6;
+    ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
+    ctx.restore();
+  }
+
+  if (isHammerCrit && !isClone) {
+    ctx.save();
+    ctx.strokeStyle = isHammerAbsCrit ? "#fde047" : "#fb923c";
+    ctx.lineWidth = isHammerAbsCrit ? 4 : 2.5;
+    ctx.strokeRect(p.x - 5, p.y - 5, p.w + 10, p.h + 10);
+    ctx.restore();
+  }
+
+  if ((p.invincibleTimer || 0) > 0 && !isClone) {
+    ctx.save();
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x + p.w / 2, p.y + p.h / 2, 28, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  if (isClone) ctx.globalAlpha = 0.65;
+  ctx.fillStyle = p.frozen ? "#7dd3fc" : drawColor;
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+
+  ctx.fillStyle = "#ffffff";
+  const eyeX = p.facing === 1 ? p.x + p.w - 11 : p.x + 5;
+  ctx.fillRect(eyeX, p.y + 10, 6, 6);
+
+  if (p.shielding && !p.burnedOut && !isClone) {
+    const ratio = Math.max(0.15, (p.shieldHp || 0) / MAX_SHIELD);
+    ctx.beginPath();
+    ctx.arc(p.x + p.w / 2, p.y + p.h / 2, 26 * ratio + 8, 0, Math.PI * 2);
+    ctx.strokeStyle = ratio < 0.3 ? "#ef4444" : "#38bdf8";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  const hb = getMeleeHitbox(p, now);
+  if (hb) {
+    ctx.fillStyle = hb.isSmash
+      ? (isHammerCrit ? "rgba(253, 224, 71, 0.65)" : "rgba(250, 204, 21, 0.5)")
+      : "rgba(255, 255, 255, 0.35)";
+    ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
+  }
+
+  ctx.font = "bold 11px sans-serif";
+  ctx.textAlign = "center";
+  const cx = p.x + p.w / 2;
+
+  if (isClone) {
+    ctx.fillStyle = "#2dd4bf";
+    ctx.fillText(`分身(${spec.shortName}) ${Math.floor(p.percent)}%`, cx, p.y - 8);
+  } else {
+    const tMeta = getTitleMeta(getTitleOfRole(p.role));
+    const displayName = getDisplayNameOfRole(p.role);
+    const rpTag = isRankedRoom() ? ` [${getRatingOfRole(p.role)}RP]` : "";
+    const teamTag = (gameMode === "team2v2" && !isPracticeMode && !isRankedRoom()) ? `[${getTeamOfRole(p.role)}]` : "";
+    const meTag = (!isPracticeMode && p.role === myRole) ? "(自分)" : "";
+    const enhTag = (p.charKey === "enhancer" && (p.enhanceLevel || 0) > 0) ? ` [強化Lv.${p.enhanceLevel}]` : "";
+    const hamTag = p.charKey === "hammer"
+      ? (isHammerCrit
+          ? (isHammerAbsCrit ? ` [★会心絶対 ${hammerAbsSec.toFixed(1)}s!]` : ` [会心持続 ${Math.floor(p.hammerCharge || 0)}]`)
+          : ` [打撃:${Math.floor(p.hammerCharge || 0)}/120]`)
+      : "";
+    const grdTag = (p.charKey === "guardian" && (p.guardianHits || 0) > 0) ? ` [護:${p.guardianHits}/5]` : "";
+    const mgTag = p.charKey === "elementalist" ? ` [${MAGIC_INFO[p.magicMode]?.label || "炎"} MP:${Math.floor(p.mp || 0)}]` : "";
+    const trTag = p.charKey === "trapper" ? ` [罠:${TRAP_INFO[p.trapMode]?.label || "爆発"}]` : "";
+    const stTag = p.burnedOut ? " [バースト!]" : (p.frozen ? " [凍結!]" : "");
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillText(`${tMeta.label} ${teamTag}${displayName}${rpTag}${meTag}${enhTag}${hamTag}${grdTag}${mgTag}${trTag}${stTag}`, cx, p.y - 8);
+  }
+  ctx.textAlign = "left";
+  ctx.restore();
+}
+
+function drawHud() {
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) return;
 
   for (const pr of projectiles) {
     ctx.fillStyle = pr.color || "#fbbf24";
@@ -5878,186 +6258,211 @@ function draw() {
   }
 
   for (const bm of beams) {
-    const clipped = bm.mode === "heal" ? bm : getClippedBeamRect(bm);
-    if (bm.mode === "ult_beam") {
-      ctx.fillStyle = "rgba(250, 204, 21, 0.78)";
-      ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
-      ctx.strokeStyle = "#ffffff";
+    if (bm.mode === "heal") {
+      ctx.save();
+      ctx.strokeStyle = "rgba(74, 222, 128, 0.85)";
       ctx.lineWidth = 3;
-      ctx.strokeRect(clipped.x, clipped.y, clipped.w, clipped.h);
-    } else {
-      ctx.fillStyle = bm.mode === "mage_laser" ? "rgba(192, 132, 252, 0.85)" : MAGIC_INFO[bm.mode].beamColor;
-      ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
+      ctx.strokeRect(bm.x, bm.y, bm.w, bm.h);
+      ctx.restore();
+      continue;
     }
-  }
-  drawUltEffects();
-
-  for (const rg of ringEffects) {
-    const ratio = 1 - Math.max(0, rg.life / rg.maxLife);
-    const curRadius = rg.maxRadius * Math.min(1, ratio * 1.35);
+    const clipped = getClippedBeamRect(bm);
+    if (clipped.w <= 0) continue;
     ctx.save();
-    ctx.beginPath(); ctx.arc(rg.cx, rg.cy, Math.max(4, curRadius), 0, Math.PI * 2);
-    ctx.lineWidth = 6; ctx.strokeStyle = `rgba(253, 224, 71, ${Math.max(0.15, rg.life / rg.maxLife)})`;
-    ctx.stroke();
-    ctx.fillStyle = `rgba(250, 204, 21, ${0.18 * Math.max(0.15, rg.life / rg.maxLife)})`;
-    ctx.fill();
+    ctx.fillStyle = bm.mode === "ult_beam"
+      ? (bm.color || "rgba(192, 132, 252, 0.85)")
+      : (bm.mode === "mage_laser" ? "rgba(192, 132, 252, 0.75)" : (MAGIC_INFO[bm.mode]?.beamColor || "rgba(255,255,255,0.7)"));
+    ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
     ctx.restore();
   }
 
-  const hudRoles = isPracticeMode ? [1, 2] : activeRoles;
-  const cardWidth = 210;
-  const gap = 14;
-  const totalHudW = hudRoles.length * cardWidth + Math.max(0, hudRoles.length - 1) * gap;
-  const startHudX = (canvas.width - totalHudW) / 2;
-  const hudY = canvas.height - 96;
+  for (const rg of ringEffects) {
+    const progress = 1 - (rg.life / rg.maxLife);
+    const curRadius = Math.max(18, rg.maxRadius * (0.25 + progress * 0.75));
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(rg.cx, rg.cy, curRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
+  }
 
-  hudRoles.forEach((r, idx) => {
+  drawTrapsAndEffects(performance.now());
+  drawUltEffects();
+
+  const participants = getParticipantRoles();
+  const hudCount = Math.max(1, participants.length);
+  const slotW = Math.min(240, Math.floor((canvas.width - 40) / hudCount));
+
+  participants.forEach((r, idx) => {
     const p = players[r];
     if (!p) return;
-    const xPos = startHudX + idx * (cardWidth + gap);
-    const pColor = getColorOfRole(r);
-    const pName = getDisplayNameOfRole(r);
-    const specBadge = isRoleSpectating(r) ? " [観戦]" : "";
-    const teamBadge = (!isPracticeMode && gameMode === "team2v2" && !isRoleSpectating(r)) ? (getTeamOfRole(r) === "A" ? "[A]" : "[B]") : "";
-    const readyBadge = (!isPracticeMode && !isRoleSpectating(r) && (phase === "char_select" || phase === "countdown"))
-      ? (readyRoles.has(r) ? " ✓完了" : " 選択中")
-      : "";
+    const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
+    const x = 20 + idx * (slotW + 10);
+    const y = canvas.height - 74;
 
-    ctx.fillStyle = "rgba(15, 23, 42, 0.86)";
-    ctx.fillRect(xPos, hudY, cardWidth, 82);
-    ctx.strokeStyle = r === myRole ? "#fde047" : pColor;
-    ctx.lineWidth = r === myRole ? 2.5 : 1.5;
-    ctx.strokeRect(xPos, hudY, cardWidth, 82);
+    ctx.fillStyle = "rgba(15, 23, 42, 0.84)";
+    ctx.fillRect(x, y, slotW, 64);
+    ctx.strokeStyle = getColorOfRole(r);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, slotW, 64);
 
     ctx.font = "bold 12px sans-serif";
-    ctx.fillStyle = pColor;
-    ctx.fillText(`${pName}${teamBadge}${specBadge}${readyBadge}`, xPos + 10, hudY + 17);
+    ctx.fillStyle = "#f8fafc";
+    const rpStr = isRankedRoom() ? ` (${getRatingOfRole(r)}RP)` : "";
+    ctx.fillText(`${getDisplayNameOfRole(r)}${rpStr} [${spec.shortName}]`, x + 8, y + 16);
 
-    if (isRoleSpectating(r)) {
-      ctx.font = "12px sans-serif";
-      ctx.fillStyle = "#94a3b8";
-      ctx.fillText("次の試合から参加待機中", xPos + 10, hudY + 42);
-      return;
+    ctx.font = "bold 18px sans-serif";
+    ctx.fillStyle = p.stocks <= 0 ? "#94a3b8" : (p.percent >= 100 ? "#f87171" : "#fbbf24");
+    ctx.fillText(p.stocks <= 0 ? "OUT" : `${Math.floor(p.percent)}%`, x + 8, y + 38);
+
+    ctx.font = "12px sans-serif";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillText(`残機: ${"●".repeat(Math.max(0, p.stocks))}${"○".repeat(Math.max(0, MAX_STOCK - p.stocks))}`, x + 8, y + 55);
+
+    if (!isUltimatesDisabled()) {
+      const ultVal = Math.min(ULTIMATE_MAX_GAUGE, Math.max(0, Number(p.ultGauge) || 0));
+      const ultReady = ultVal >= ULTIMATE_MAX_GAUGE;
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = ultReady ? "#fde047" : "#94a3b8";
+      ctx.fillText(ultReady ? "必殺[U] OK!" : `必殺:${Math.floor((ultVal / ULTIMATE_MAX_GAUGE) * 100)}%`, x + slotW - 76, y + 55);
     }
+  });
+}
 
-    ctx.font = "bold 19px sans-serif";
-    ctx.fillStyle = p.percent >= 100 ? "#ef4444" : "#f8fafc";
-    ctx.fillText(`${Math.floor(p.percent)}%`, xPos + 10, hudY + 41);
+function drawLobbyPreview(now) {
+  ctx.save();
+  ctx.fillStyle = "#162032";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.font = "13px sans-serif";
-    ctx.fillStyle = "#fbbf24";
-    ctx.fillText(`残機:${"●".repeat(Math.max(0, p.stocks))}`, xPos + 82, hudY + 40);
+  ctx.fillStyle = "#1e293b";
+  ctx.fillRect(36, 28, canvas.width - 72, canvas.height - 56);
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(36, 28, canvas.width - 72, canvas.height - 56);
 
-    let subText = CHAR_SPECS[p.charKey].shortName;
-    if (p.charKey === "enhancer") subText = `強化Lv.${p.enhanceLevel || 0}/${ENHANCE_MAX_LEVEL}`;
-    else if (p.charKey === "elementalist") {
-      const mInfo = MAGIC_INFO[p.magicMode || "fire"];
-      subText = `${mInfo.label}(MP${Math.floor(p.mp || 0)})`;
-    } else if (p.charKey === "hammer") {
-      if (isHammerCritState(p, now)) {
-        const remAbs = getHammerRemainingAbsSec(p, now);
-        subText = remAbs > 0 ? `会心!絶対${remAbs.toFixed(1)}s` : "会心!貫通+40";
-      } else {
-        subText = `会心${Math.min(HAMMER_CRIT_THRESHOLD, p.hammerCharge || 0)}/${HAMMER_CRIT_THRESHOLD}`;
-      }
-    } else if (p.charKey === "guardian") subText = (p.invincibleTimer || 0) > 0 ? `無敵${Math.ceil(p.invincibleTimer / 60)}s` : `L連撃${p.guardianHits || 0}/${GUARDIAN_INVINCIBLE_HITS}`;
-    else if (p.charKey === "summoner") {
-      const remCd = Math.max(0, Math.ceil(((p.summonCooldownUntil || 0) - now) / 1000));
-      subText = p.hasClone ? "分身出撃中" : (remCd > 0 ? `召喚CT ${remCd}s` : "召喚可[K]");
-    } else if (p.charKey === "trapper") {
-      const tInfo = TRAP_INFO[p.trapMode || "explosion"];
-      const activeCnt = traps.filter(t => t.ownerRole === p.role).length;
-      subText = `${tInfo.label} 罠${activeCnt}/${MAX_TRAPS_PER_OWNER}`;
-    }
+  ctx.textAlign = "center";
+  ctx.font = "bold 24px sans-serif";
+  ctx.fillStyle = "#38bdf8";
+  if (isRankedRoom()) {
+    ctx.fillText(`🏆 レート戦ロビー（最大${MAX_RANKED_ROOM_PLAYERS}人・1on1近レートマッチ）`, canvas.width / 2, 68);
+  } else {
+    ctx.fillText(currentPassphrase ? `合言葉「${currentPassphrase}」待機中` : `🏟️ ${LOBBY_SECTION_NAME}（最大${MAX_LOBBY_PLAYERS}人）`, canvas.width / 2, 68);
+  }
 
-    ctx.font = "11px sans-serif";
-    ctx.fillStyle = "#94a3b8";
-    ctx.fillText(subText, xPos + 10, hudY + 57);
+  const tMeta = getTitleMeta(equippedTitle);
+  ctx.font = "bold 16px sans-serif";
+  ctx.fillStyle = "#fbbf24";
+  ctx.fillText(`${myName || "プレイヤー"}  ｜  ${myRating} RP（最高 ${myPeakRating} RP）  ｜  ${tMeta.label}`, canvas.width / 2, 102);
 
-    const ultVal = Math.min(ULTIMATE_MAX_GAUGE, Math.floor(p.ultGauge || 0));
-    const ultReady = ultVal >= ULTIMATE_MAX_GAUGE;
-    ctx.font = "bold 10px sans-serif";
-    ctx.fillStyle = ultReady ? "#fde047" : "#cbd5e1";
-    ctx.textAlign = "right";
-    ctx.fillText(ultReady ? "必殺[U]発動可!" : `必殺 ${ultVal}/1000`, xPos + cardWidth - 10, hudY + 57);
+  ctx.font = "13px sans-serif";
+  ctx.fillStyle = "#cbd5e1";
+  if (isRankedRoom()) {
+    ctx.fillText("「🎯 ランダムマッチ開始」で現在レートが近い相手と自動1on1マッチング！（戦場・終点 / ストック3 / 必殺技なし）", canvas.width / 2, 132);
+  } else {
+    ctx.fillText("上のバーから「🏆 レート戦（20人）」「🤖 練習場」「合言葉入室」を選べます。右のコメント欄でチャットも可能！", canvas.width / 2, 132);
+  }
+
+  const roster = activeRoles.length > 0 ? activeRoles.slice(0, 10) : [1];
+  const cardW = 190;
+  const cardH = 66;
+  const cols = 5;
+  const startX = (canvas.width - (cols * cardW + (cols - 1) * 12)) / 2;
+  const startY = 165;
+
+  roster.forEach((r, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cx = startX + col * (cardW + 12);
+    const cy = startY + row * (cardH + 12);
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(cx, cy, cardW, cardH);
+    ctx.strokeStyle = (r === myRole) ? "#fbbf24" : "#475569";
+    ctx.lineWidth = (r === myRole) ? 2 : 1;
+    ctx.strokeRect(cx, cy, cardW, cardH);
+
+    const nm = getDisplayNameOfRole(r);
+    const rp = getRatingOfRole(r);
+    const tm = getTitleMeta(getTitleOfRole(r));
     ctx.textAlign = "left";
-
-    const barW = cardWidth - 20;
-    ctx.fillStyle = "#334155";
-    ctx.fillRect(xPos + 10, hudY + 65, barW, 4);
-    ctx.fillStyle = p.burnedOut ? "#ef4444" : "#38bdf8";
-    ctx.fillRect(xPos + 10, hudY + 65, barW * Math.max(0, p.shieldHp / MAX_SHIELD), 4);
-
-    ctx.fillStyle = "#1e293b";
-    ctx.fillRect(xPos + 10, hudY + 71, barW, 5);
-    ctx.fillStyle = ultReady ? "#facc15" : "#a855f7";
-    ctx.fillRect(xPos + 10, hudY + 71, barW * (ultVal / ULTIMATE_MAX_GAUGE), 5);
+    ctx.font = "bold 13px sans-serif";
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillText(`${nm} (${rp}RP)`, cx + 10, cy + 24);
+    ctx.font = "11px sans-serif";
+    ctx.fillStyle = "#93c5fd";
+    ctx.fillText(tm.label, cx + 10, cy + 46);
   });
 
+  ctx.restore();
+}
+
+function draw() {
+  const now = performance.now();
+  if (!hasEnteredLobby || isPublicLobbyRoom() || phase === "map_select" || phase === "char_select") {
+    drawLobbyPreview(now);
+    return;
+  }
+
+  drawStage();
+  for (const r of getParticipantRoles()) {
+    drawPlayerEntity(players[r], now, false);
+  }
+  for (const ownerStr of Object.keys(clones)) {
+    const ownerRole = Number(ownerStr);
+    if (isRoleSpectating(ownerRole)) continue;
+    drawPlayerEntity(clones[ownerRole], now, true);
+  }
+  drawHud();
+
   if (phase === "countdown") {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.52)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#fde047"; ctx.font = "bold 64px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(`${countdownLeft}`, canvas.width / 2, canvas.height / 2 - 10);
-    ctx.fillStyle = "#f8fafc"; ctx.font = "bold 20px sans-serif";
-    ctx.fillText("まもなく試合開始！", canvas.width / 2, canvas.height / 2 + 36);
-    ctx.textAlign = "left";
-  }
-
-  if (isPracticeMode && phase === "playing" && isPracticeStopped) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.45)";
+    ctx.save();
+    ctx.fillStyle = "rgba(15, 23, 42, 0.52)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#fbbf24";
-    ctx.font = "bold 36px sans-serif";
+    ctx.fillStyle = "#fde047";
+    ctx.font = "bold 64px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("⏸ 練習場ストップ中", canvas.width / 2, canvas.height / 2 - 10);
-    ctx.fillStyle = "#e2e8f0";
-    ctx.font = "16px sans-serif";
-    ctx.fillText("「▶ スタート」で再開、「🔄 リセット」でマップ選択へ戻ります", canvas.width / 2, canvas.height / 2 + 28);
-    ctx.textAlign = "left";
-  }
-
-  if (phase === "gameover" && winnerInfo) {
-    ctx.fillStyle = "rgba(15, 23, 42, 0.72)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const title = winnerInfo.type === "team"
-      ? `${winnerInfo.winnerTeam === "A" ? "Aチーム（1P・2P）" : "Bチーム（3P・4P）"} WIN!`
+    ctx.fillText(`開始まで ${countdownLeft}`, canvas.width / 2, canvas.height / 2 + 16);
+    ctx.restore();
+  } else if (phase === "gameover" && winnerInfo) {
+    ctx.save();
+    ctx.fillStyle = "rgba(15, 23, 42, 0.65)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#fde047";
+    ctx.font = "bold 46px sans-serif";
+    ctx.textAlign = "center";
+    const winTitle = winnerInfo.type === "team"
+      ? (winnerInfo.winnerTeam === "A" ? "Aチーム WIN!" : "Bチーム WIN!")
       : `${getDisplayNameOfRole(winnerInfo.winnerRole)} WIN!`;
-    ctx.fillStyle = "#fde047"; ctx.font = "bold 46px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(title, canvas.width / 2, canvas.height / 2 - 16);
-    ctx.fillStyle = "#f8fafc"; ctx.font = "18px sans-serif";
-    ctx.fillText(`${resultSecLeft}秒後にマップ選択へ戻ります...`, canvas.width / 2, canvas.height / 2 + 28);
-    ctx.textAlign = "left";
+    ctx.fillText(winTitle, canvas.width / 2, canvas.height / 2 - 14);
+    if (winnerInfo.rankedResult) {
+      const rr = winnerInfo.rankedResult;
+      const sign = rr.delta >= 0 ? `+${rr.delta}` : `${rr.delta}`;
+      ctx.font = "bold 22px sans-serif";
+      ctx.fillStyle = rr.iWon ? "#4ade80" : "#f87171";
+      ctx.fillText(`${sign} RP → 現在 ${rr.rating} RP（最高 ${rr.peak} RP）`, canvas.width / 2, canvas.height / 2 + 26);
+    }
+    ctx.restore();
   }
 }
 
 function loop(now) {
-  const rawDt = (now - lastFrameTime) / (1000 / 60);
+  const dt = now - lastFrameTime;
   lastFrameTime = now;
-  const dtScale = Math.max(0.25, Math.min(2.5, rawDt || 1));
-  update(dtScale);
+  update(dt);
   draw();
   requestAnimationFrame(loop);
 }
 
 initDropdownOptions();
 initColorPaletteDOM();
-renderChatLogDOM();
+rebuildTitleSelectOptions();
+updateRatingBadge();
 updatePassphraseUI();
 updateLoopUI();
 updateRoomStatusBox();
 updateStatusByPhase();
 requestAnimationFrame(loop);
-
-if (myName) {
-  hasEnteredLobby = true;
-  nameGateOverlay.classList.add("hidden");
-  connectToPassphrase(currentPassphrase, false);
-} else {
-  hasEnteredLobby = false;
-  nameGateOverlay.classList.remove("hidden");
-  updateChatVisibility();
-  statusEl.textContent = "名前を入力してロビーへ入ってください";
-  setTimeout(() => gateNameInput.focus(), 50);
-}
 </script>
 </body>
 </html>
