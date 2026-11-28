@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>スマブラ風マルチ対戦（ギミック6ステージ追加版）</title>
+<title>スマブラ風マルチ対戦（ギミック6ステージ＋必殺技追加版）</title>
 <style>
   body {
     margin: 0;
@@ -400,14 +400,14 @@
 </div>
 
 <div id="controls-guide">
-  操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃 ｜ <b>K</b> スマッシュ（召喚：クローン / 精霊魔法：発動 / トラッパー：設置） ｜ <b>I</b> 切替（精霊魔法・トラッパー） ｜ <b>J</b> バリア
+  操作：<b>A / D</b> 移動 ｜ <b>W</b> ジャンプ(最優先) ｜ <b>S</b> 台すり抜け ｜ <b>L</b> 通常攻撃（<b>W+L</b>上 / <b>S+L</b>下 / <b>A・D+L</b>左右 ※魔法は左右のみビーム） ｜ <b>K</b> スマッシュ・特殊 ｜ <b>U</b> 必殺技(ゲージ1000) ｜ <b>I</b> 切替 ｜ <b>J</b> バリア
 </div>
 
 <script>
 const MAX_BATTLE_PLAYERS = 4;
 const MAX_LOBBY_PLAYERS = 30;
 const LOBBY_SECTION_NAME = "公開待機ロビー";
-const MAX_STOCK = 5;
+const MAX_STOCK = 3;
 const MAX_SHIELD = 160;
 const MAX_MP = 100;
 const HAMMER_CRIT_THRESHOLD = 120;
@@ -428,6 +428,9 @@ const RESULT_SECONDS = 3;
 const STATE_SEND_INTERVAL_MS = 33;
 const ENHANCE_MAX_LEVEL = 5;
 const ENHANCE_COOLDOWN_MS = 10000;
+const ULTIMATE_MAX_GAUGE = 500;
+const ULTIMATE_HIT_GAIN = 10;
+const ULTIMATE_HURT_GAIN = 5;
 const CHAT_MAX_ITEMS = 40;
 let fixedHostThisPc = localStorage.getItem("smash_host_locked") === "1";
 
@@ -851,7 +854,7 @@ const CHAR_SPECS = {
   mage: {
     name: "🔮 魔法タイプ",
     shortName: "魔法",
-    desc: "Lレーザー攻撃(連射控えめ)＆魔法スマッシュ",
+    desc: "左右Lレーザー攻撃(上下Lは近接)＆魔法スマッシュ",
     color: "#c084fc",
     moveAcc: 0.92,
     friction: 0.82,
@@ -962,6 +965,94 @@ const CHAR_SPECS = {
   }
 };
 
+const CHAR_ULTIMATES = {
+  fighter: {
+    name: "百烈乱舞フィニッシュ",
+    shortName: "百烈乱舞",
+    dmg: 70,
+    basePower: 18.0,
+    upAngleMult: 0.72,
+    rangeW: 135,
+    rangeH: 64,
+    color: "#ff5c5c"
+  },
+  guardian: {
+    name: "イージス・カタストロフ",
+    shortName: "イージス衝撃",
+    dmg: 75,
+    basePower: 19.0,
+    upAngleMult: 0.78,
+    radius: 135,
+    color: "#38bdf8"
+  },
+  mage: {
+    name: "アポカリプス・レイ",
+    shortName: "滅魔レーザー",
+    dmg: 68,
+    basePower: 17.5,
+    upAngleMult: 0.68,
+    beamLen: 720,
+    beamH: 48,
+    color: "#c084fc"
+  },
+  enhancer: {
+    name: "オーバードライブ・バースト",
+    shortName: "限界突破撃",
+    dmg: 72,
+    basePower: 18.5,
+    upAngleMult: 0.74,
+    rangeW: 150,
+    rangeH: 72,
+    color: "#34d399"
+  },
+  jumper: {
+    name: "メテオ・ダイブインパクト",
+    shortName: "流星ダイブ",
+    dmg: 74,
+    basePower: 18.5,
+    upAngleMult: 0.80,
+    radius: 140,
+    color: "#f59e0b"
+  },
+  elementalist: {
+    name: "四精霊大調和（クアドラ・ノヴァ）",
+    shortName: "四精霊ノヴァ",
+    dmg: 78,
+    basePower: 19.5,
+    upAngleMult: 0.75,
+    radius: 165,
+    color: "#f472b6"
+  },
+  hammer: {
+    name: "ギガント・クラッシャー",
+    shortName: "ギガント破砕",
+    dmg: 80,
+    basePower: 20.5,
+    upAngleMult: 0.78,
+    rangeW: 155,
+    rangeH: 76,
+    color: "#fb923c"
+  },
+  summoner: {
+    name: "ファントム・ブリッツ軍団",
+    shortName: "分身一斉突撃",
+    dmg: 66,
+    basePower: 17.0,
+    upAngleMult: 0.70,
+    radius: 150,
+    color: "#2dd4bf"
+  },
+  trapper: {
+    name: "クラスター・マインズ",
+    shortName: "一斉地雷爆破",
+    dmg: 72,
+    basePower: 18.0,
+    upAngleMult: 0.76,
+    radius: 155,
+    color: "#f97316"
+  }
+};
+
 const PLAYER_COLORS = {
   1: "#ff5c5c",
   2: "#38bdf8",
@@ -1017,7 +1108,6 @@ function buildSmashWebSocketUrl(passphrase) {
   if (!host) return null;
   const proto = location.protocol === "https:" ? "wss://" : "ws://";
   const segments = (location.pathname || "/").split("/").filter(Boolean);
-  // 最初のセグメントがアプリ名（例: /game/index.html -> /game）として使われる場合のみプレフィックスを付与する
   const hasAppPrefix =
     segments.length >= 2 ||
     (segments.length === 1 && !/\.[a-z0-9]+$/i.test(segments[0]) && segments[0] !== "index");
@@ -1107,6 +1197,7 @@ let burnDebuffs = [];
 let clones = {};
 let traps = [];
 let trapEffects = [];
+let ultEffects = [];
 let chatMessages = [];
 
 function initStageGimmicks(stage, resetPhase = false) {
@@ -1268,6 +1359,11 @@ function handleHammerIncomingHit(entity, wasSmash, wasLight, nowMs = performance
   }
 
   return { changed: false, resetOccurred: false };
+}
+
+function addUltimateGauge(entity, amount) {
+  if (!entity || amount <= 0) return;
+  entity.ultGauge = Math.min(ULTIMATE_MAX_GAUGE, Math.max(0, Number(entity.ultGauge) || 0) + amount);
 }
 
 function rectsOverlap(a, b) {
@@ -1526,6 +1622,7 @@ function makePlayer(roleNum, charKey) {
     percent: 0,
     stocks: MAX_STOCK,
     atkType: null,
+    atkDir: "side",
     atkTimer: 0,
     cooldown: 0,
     hasHit: false,
@@ -1551,7 +1648,8 @@ function makePlayer(roleNum, charKey) {
     stun: 0,
     shielding: false,
     shieldHp: MAX_SHIELD,
-    burnedOut: false
+    burnedOut: false,
+    ultGauge: 0
   };
 }
 
@@ -1911,7 +2009,7 @@ function resetSinglePlayer(p, roleNum) {
   p.warpCooldownFrames = 0;
   p.hazardCooldownFrames = 0;
   p.onIce = false;
-  p.atkType = null; p.atkTimer = 0; p.cooldown = 0; p.hasHit = false;
+  p.atkType = null; p.atkDir = "side"; p.atkTimer = 0; p.cooldown = 0; p.hasHit = false;
   p.smashCharging = false; p.smashChargeStart = 0; p.smashChargeRatio = 0;
   p.enhanceLevel = 0; p.enhanceCooldownUntil = 0;
   resetHammerCritAndCharge(p);
@@ -1919,6 +2017,7 @@ function resetSinglePlayer(p, roleNum) {
   p.summonCooldownUntil = 0; p.hasClone = false;
   p.mp = MAX_MP; p.magicMode = "fire"; p.trapMode = "explosion"; p.trapCooldownUntil = 0; p.frozen = false;
   p.shielding = false; p.shieldHp = MAX_SHIELD; p.burnedOut = false;
+  p.ultGauge = 0;
 }
 
 function promoteSpectatorsToParticipants() {
@@ -1964,6 +2063,7 @@ function resetPlayersForNewMatch() {
   clones = {};
   traps = [];
   trapEffects = [];
+  ultEffects = [];
   winnerInfo = null;
   gameOverSent = false;
 }
@@ -2313,7 +2413,6 @@ function updateStatusByPhase() {
     statusEl.textContent = "";
     return;
   }
-  const cap = getRoomCapacity();
   const displayMyName = myName || "未設定";
   if (isPracticeMode) {
     if (phase === "map_select") {
@@ -2866,6 +2965,12 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
   const nowMs = performance.now();
 
   const attacker = players[attackerRole];
+  if (attacker && !hitMeta.fromClone && !hitMeta.wasUlt) {
+    addUltimateGauge(attacker, ULTIMATE_HIT_GAIN);
+  }
+  if (targetEntity && !hitMeta.wasUlt) {
+    addUltimateGauge(targetEntity, ULTIMATE_HURT_GAIN);
+  }
   if (attacker && !hitMeta.fromClone) {
     if (attacker.charKey === "elementalist") {
       attacker.mp = Math.min(MAX_MP, (attacker.mp || 0) + 5);
@@ -2972,6 +3077,9 @@ function applyIncomingHitToEntity(targetEntity, attackerRole, dmg, basePower, di
 
 function applyDamageToMe(me, spec, dmg, basePower, dir, upAngleMult = 0.62, pierceGuard = false, hitMeta = {}) {
   if (isSpectator) return;
+  if (!hitMeta.wasUlt) {
+    addUltimateGauge(me, ULTIMATE_HURT_GAIN);
+  }
 
   const nowMs = performance.now();
   let hammerChanged = false;
@@ -3352,6 +3460,7 @@ function attachSocketHandlers(socket) {
         target.role = targetRole;
         target.name = data.player.name ? sanitizePlayerName(data.player.name, targetRole) : prevName;
         target.color = data.player.color ? sanitizeColorHex(data.player.color, targetRole) : prevColor;
+        if (!target.atkDir) target.atkDir = "side";
         if (target.critReady && !prevCritReady) {
           target.critStartedAt = performance.now();
         } else if (target.critReady && !target.critStartedAt && prevCritStartedAt) {
@@ -3379,6 +3488,7 @@ function attachSocketHandlers(socket) {
       if (data.ownerRole === myRole) return;
       if (data.clone && data.clone.active) {
         const prevCl = clones[data.ownerRole];
+        if (!data.clone.atkDir) data.clone.atkDir = "side";
         if (data.clone.critReady && !(prevCl && prevCl.critReady)) {
           data.clone.critStartedAt = performance.now();
         } else if (data.clone.critReady && !data.clone.critStartedAt && prevCl && prevCl.critStartedAt) {
@@ -3397,7 +3507,7 @@ function attachSocketHandlers(socket) {
         data.basePower || 0,
         data.dir || 1,
         data.effect || null,
-        data.upAngleMult || 0.62,
+        data.upAngleMult !== undefined ? data.upAngleMult : 0.62,
         { wasSmash: !!data.wasSmash, wasLight: !!data.wasLight }
       );
     } else if (data.type === "gameover") {
@@ -3415,6 +3525,9 @@ function attachSocketHandlers(socket) {
     } else if (data.type === "ring") {
       if (isPublicLobbyRoom() || phase === "gameover") return;
       if (data.ring && data.ring.ownerRole !== myRole) ringEffects.push(data.ring);
+    } else if (data.type === "ult_fx") {
+      if (isPublicLobbyRoom() || phase === "gameover") return;
+      if (data.fx && data.fx.ownerRole !== myRole) ultEffects.push(data.fx);
     } else if (data.type === "trap_place") {
       if (isPublicLobbyRoom() || phase === "gameover") return;
       if (data.trap && data.trap.ownerRole !== myRole) {
@@ -3435,6 +3548,10 @@ function attachSocketHandlers(socket) {
       const me = players[myRole];
       if (!me) return;
       let changed = false;
+      if (!data.wasUlt) {
+        addUltimateGauge(me, ULTIMATE_HIT_GAIN);
+        changed = true;
+      }
       if (me.charKey === "elementalist") {
         me.mp = Math.min(MAX_MP, (me.mp || 0) + 5);
         changed = true;
@@ -3464,6 +3581,7 @@ function attachSocketHandlers(socket) {
       const pierceGuard = !!data.pierceGuard;
       const wasSmash = !!data.wasSmash;
       const wasLight = !!data.wasLight;
+      const upMult = data.upAngleMult !== undefined ? data.upAngleMult : 0.62;
 
       if (socket.readyState === WebSocket.OPEN && !data.fromClone) {
         socket.send(JSON.stringify({
@@ -3472,19 +3590,22 @@ function attachSocketHandlers(socket) {
           targetRole: myRole,
           wasLight,
           wasSmash,
-          wasCrit: !!data.wasCrit
+          wasCrit: !!data.wasCrit,
+          wasUlt: !!data.wasUlt
         }));
       }
 
       if ((me.invincibleTimer || 0) > 0) {
+        if (!data.wasUlt) addUltimateGauge(me, ULTIMATE_HURT_GAIN);
         if (me.charKey === "hammer") {
-          const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
-          if (hRes.changed) sendMyState(me, true);
+          handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
         }
+        sendMyState(me, true);
         return;
       }
 
       if (data.effect === "burn") {
+        if (!data.wasUlt) addUltimateGauge(me, ULTIMATE_HURT_GAIN);
         if (me.charKey === "hammer") {
           const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
           if (hRes.changed) sendMyState(me, true);
@@ -3501,6 +3622,7 @@ function attachSocketHandlers(socket) {
       }
 
       if (data.effect === "freeze") {
+        if (!data.wasUlt) addUltimateGauge(me, ULTIMATE_HURT_GAIN);
         if (me.charKey === "hammer") {
           const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
           if (hRes.changed) sendMyState(me, true);
@@ -3519,6 +3641,7 @@ function attachSocketHandlers(socket) {
       }
 
       if (data.effect === "trap_stun_2s") {
+        if (!data.wasUlt) addUltimateGauge(me, ULTIMATE_HURT_GAIN);
         if (me.charKey === "hammer") {
           const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
           if (hRes.changed) sendMyState(me, true);
@@ -3541,6 +3664,7 @@ function attachSocketHandlers(socket) {
       }
 
       if (data.effect === "trap_wind") {
+        if (!data.wasUlt) addUltimateGauge(me, ULTIMATE_HURT_GAIN);
         if (me.charKey === "hammer") {
           const hRes = handleHammerIncomingHit(me, wasSmash, wasLight, performance.now());
           if (hRes.changed) sendMyState(me, true);
@@ -3556,7 +3680,7 @@ function attachSocketHandlers(socket) {
         const kbScale = (1 + me.percent * 0.018) / spec.weight;
         const power = data.basePower || 13.5;
         me.vx = (data.dir || 1) * power * kbScale;
-        me.vy = -power * (data.upAngleMult || 0.45) * kbScale;
+        me.vy = -power * (data.upAngleMult !== undefined ? data.upAngleMult : 0.45) * kbScale;
         me.stun = Math.max(me.stun, Math.min(45, Math.floor(12 + power * 0.65 * kbScale)));
         me.shielding = false;
         me.smashCharging = false;
@@ -3564,7 +3688,7 @@ function attachSocketHandlers(socket) {
         return;
       }
 
-      applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, data.upAngleMult || 0.62, pierceGuard, { wasSmash, wasLight });
+      applyDamageToMe(me, spec, data.dmg, data.basePower, data.dir, upMult, pierceGuard, { wasSmash, wasLight, wasUlt: !!data.wasUlt });
     }
   };
 }
@@ -3598,7 +3722,7 @@ function connectToPassphrase(nextPassphrase, updateUrl = true) {
   entryBlockedByHost = false;
   winnerInfo = null;
   gameOverSent = false;
-  projectiles = []; beams = []; ringEffects = []; burnDebuffs = []; clones = {}; traps = []; trapEffects = [];
+  projectiles = []; beams = []; ringEffects = []; burnDebuffs = []; clones = {}; traps = []; trapEffects = []; ultEffects = [];
   for (let r = 1; r <= MAX_BATTLE_PLAYERS; r++) {
     resetSinglePlayer(players[r], r);
     players[r].active = false;
@@ -3661,7 +3785,7 @@ function trySummonCloneForRole(actorRole) {
   const newClone = {
     ownerRole: actorRole, active: true, charKey: pickedChar,
     x: spawnX, y: actor.y - 6, w: 32, h: 42, vx: 0, vy: -3,
-    facing: actor.facing, jumps: spec.maxJumps || 2, onGround: false, percent: 0, stun: 0, atkTimer: 0, cooldown: 35, hasHit: false,
+    facing: actor.facing, jumps: spec.maxJumps || 2, onGround: false, percent: 0, stun: 0, atkDir: "side", atkTimer: 0, cooldown: 35, hasHit: false,
     hammerCharge: 0, critReady: false, critActive: false, critStartedAt: 0, critLightHitsAfterExpiry: 0
   };
   clones[actorRole] = newClone;
@@ -4055,6 +4179,183 @@ function drawTrapsAndEffects(now) {
   }
 }
 
+function canUseUltimateAction(actor) {
+  if (!actor) return false;
+  if (actor.stocks <= 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
+  return (Number(actor.ultGauge) || 0) >= ULTIMATE_MAX_GAUGE;
+}
+
+function executeUltimateForEntity(actor, nowMs = performance.now()) {
+  if (!canUseUltimateAction(actor)) return false;
+  const ultSpec = CHAR_ULTIMATES[actor.charKey] || CHAR_ULTIMATES.fighter;
+
+  actor.ultGauge = 0;
+  actor.smashCharging = false;
+  actor.hasHit = false;
+  actor.cooldown = Math.max(actor.cooldown || 0, 26);
+
+  if (actor.charKey === "enhancer") {
+    actor.enhanceLevel = ENHANCE_MAX_LEVEL;
+  }
+
+  const cx = actor.x + actor.w * 0.5;
+  const cy = actor.y + actor.h * 0.5;
+
+  if (actor.charKey === "mage") {
+    const beamLen = ultSpec.beamLen || 720;
+    const beamH = ultSpec.beamH || 48;
+    const ultBeam = {
+      ownerRole: actor.role,
+      mode: "ult_beam",
+      x: actor.facing === 1 ? actor.x + actor.w + 4 : actor.x - beamLen - 4,
+      y: cy - beamH * 0.5,
+      w: beamLen,
+      h: beamH,
+      dir: actor.facing,
+      life: 22,
+      maxLife: 22,
+      dmg: ultSpec.dmg,
+      basePower: ultSpec.basePower,
+      upAngleMult: ultSpec.upAngleMult,
+      color: ultSpec.color,
+      hasHitRoles: []
+    };
+    beams.push(ultBeam);
+    if (!isPracticeMode && actor.role === myRole && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "beam", beam: ultBeam }));
+    }
+  } else {
+    const isLineBox = ["fighter", "enhancer", "hammer"].includes(actor.charKey);
+    const box = isLineBox
+      ? {
+          x: actor.facing === 1 ? actor.x + actor.w - 4 : actor.x - (ultSpec.rangeW || 140) + 4,
+          y: cy - (ultSpec.rangeH || 68) * 0.5,
+          w: ultSpec.rangeW || 140,
+          h: ultSpec.rangeH || 68
+        }
+      : {
+          x: cx - (ultSpec.radius || 145),
+          y: cy - (ultSpec.radius || 145),
+          w: (ultSpec.radius || 145) * 2,
+          h: (ultSpec.radius || 145) * 2
+        };
+
+    const fxObj = {
+      ownerRole: actor.role,
+      charKey: actor.charKey,
+      name: ultSpec.name,
+      isLineBox,
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      cx,
+      cy,
+      radius: ultSpec.radius || 145,
+      dir: actor.facing,
+      color: ultSpec.color,
+      life: 22,
+      maxLife: 22
+    };
+    ultEffects.push(fxObj);
+    if (!isPracticeMode && actor.role === myRole && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ult_fx", fx: fxObj }));
+    }
+
+    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
+      ((actor.role === myRole && !isSpectator) || (isPracticeMode && actor.role === 2));
+
+    if (isAuthoritative) {
+      const hitRadius = ultSpec.radius || 145;
+      for (const r of getParticipantRoles()) {
+        if (r === actor.role || isSameTeam(actor.role, r)) continue;
+        const target = players[r];
+        if (!target || !target.active || target.stocks <= 0) continue;
+
+        let matched = false;
+        if (isLineBox) {
+          matched = rectsOverlap(box, target);
+        } else {
+          const closestX = Math.max(target.x, Math.min(cx, target.x + target.w));
+          const closestY = Math.max(target.y, Math.min(cy, target.y + target.h));
+          matched = Math.hypot(closestX - cx, closestY - cy) <= hitRadius;
+        }
+        if (matched) {
+          const hitDir = isLineBox
+            ? actor.facing
+            : (((target.x + target.w * 0.5) >= cx) ? 1 : -1);
+          const extra = { wasSmash: true, wasLight: false, wasUlt: true, pierceGuard: actor.charKey === "hammer" };
+          if (actor.charKey === "elementalist") {
+            sendHitFromActorToTarget(actor.role, target.role, ultSpec.dmg, ultSpec.basePower, hitDir, "burn", ultSpec.upAngleMult, extra);
+          } else {
+            sendHitFromActorToTarget(actor.role, target.role, ultSpec.dmg, ultSpec.basePower, hitDir, null, ultSpec.upAngleMult, extra);
+          }
+        }
+      }
+
+      for (const ownerStr of Object.keys(clones)) {
+        const ownerRole = Number(ownerStr);
+        if (ownerRole === actor.role || isSameTeam(actor.role, ownerRole) || isRoleSpectating(ownerRole)) continue;
+        const cl = clones[ownerRole];
+        if (!cl || !cl.active) continue;
+        let matched = false;
+        if (isLineBox) {
+          matched = rectsOverlap(box, cl);
+        } else {
+          const closestX = Math.max(cl.x, Math.min(cx, cl.x + cl.w));
+          const closestY = Math.max(cl.y, Math.min(cy, cl.y + cl.h));
+          matched = Math.hypot(closestX - cx, closestY - cy) <= hitRadius;
+        }
+        if (matched) {
+          const hitDir = isLineBox ? actor.facing : (((cl.x + cl.w * 0.5) >= cx) ? 1 : -1);
+          sendHitFromActorToClone(actor.role, ownerRole, ultSpec.dmg, ultSpec.basePower, hitDir, null, ultSpec.upAngleMult, { wasSmash: true, wasUlt: true });
+        }
+      }
+    }
+  }
+
+  if (actor.role === myRole) sendMyState(actor, true);
+  return true;
+}
+
+function updateUltEffects(dtScale) {
+  for (let i = ultEffects.length - 1; i >= 0; i--) {
+    ultEffects[i].life -= dtScale;
+    if (ultEffects[i].life <= 0) ultEffects.splice(i, 1);
+  }
+}
+
+function drawUltEffects() {
+  for (const fx of ultEffects) {
+    const ratio = 1 - Math.max(0, fx.life / fx.maxLife);
+    const alpha = Math.max(0.12, fx.life / fx.maxLife);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (fx.isLineBox) {
+      ctx.fillStyle = fx.color || "#facc15";
+      ctx.fillRect(fx.x, fx.y, fx.w, fx.h);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(fx.x, fx.y, fx.w, fx.h);
+    } else {
+      const r = Math.max(16, (fx.radius || 145) * (0.3 + ratio * 0.75));
+      ctx.beginPath();
+      ctx.arc(fx.cx, fx.cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(250, 204, 21, 0.24)";
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = fx.color || "#facc15";
+      ctx.stroke();
+    }
+    ctx.font = "bold 14px sans-serif";
+    ctx.fillStyle = "#fde047";
+    ctx.textAlign = "center";
+    ctx.fillText(`★ ${fx.name || "必殺技"} ★`, fx.cx, fx.y - 10);
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+}
+
 function canUseStandardSmash(actor) {
   if (!actor || actor.stocks <= 0 || actor.cooldown > 0 || actor.stun > 0 || actor.shielding || actor.burnedOut || actor.frozen) return false;
   if (actor.atkTimer > 0 || actor.smashCharging) return false;
@@ -4067,7 +4368,32 @@ function canUseStandardLight(actor) {
   return true;
 }
 
-function executeAttackForEntity(actor, useSmash, chargeRatio = 0) {
+function resolveLightAttackDirection(actor, dirInput = null) {
+  if (dirInput === "up" || dirInput === "down" || dirInput === "side") {
+    return dirInput;
+  }
+  if (dirInput === "left") {
+    actor.facing = -1;
+    return "side";
+  }
+  if (dirInput === "right") {
+    actor.facing = 1;
+    return "side";
+  }
+  if (down["KeyW"]) return "up";
+  if (down["KeyS"]) return "down";
+  if (down["KeyA"] && !down["KeyD"]) {
+    actor.facing = -1;
+    return "side";
+  }
+  if (down["KeyD"] && !down["KeyA"]) {
+    actor.facing = 1;
+    return "side";
+  }
+  return "side";
+}
+
+function executeAttackForEntity(actor, useSmash, chargeRatio = 0, dirInput = null) {
   if (!actor) return false;
   if (useSmash) {
     if (!canUseStandardSmash(actor)) return false;
@@ -4080,6 +4406,7 @@ function executeAttackForEntity(actor, useSmash, chargeRatio = 0) {
 
   if (useSmash) {
     actor.atkType = "smash";
+    actor.atkDir = "side";
     actor.atkTimer = 16;
     actor.cooldown = spec.smashCooldown;
     actor.smashChargeRatio = chargeRatio;
@@ -4088,12 +4415,16 @@ function executeAttackForEntity(actor, useSmash, chargeRatio = 0) {
     }
     actor.critActive = (actor.charKey === "hammer") && isHammerCritState(actor, performance.now());
   } else {
+    const atkDir = resolveLightAttackDirection(actor, dirInput);
     actor.atkType = "light";
+    actor.atkDir = atkDir;
     actor.atkTimer = actor.charKey === "fighter" ? 7 : 10;
-    actor.cooldown = spec.lightCooldown;
+    actor.cooldown = (actor.charKey === "mage" && atkDir !== "side")
+      ? 14
+      : spec.lightCooldown;
     actor.critActive = false;
 
-    if (actor.charKey === "mage") {
+    if (actor.charKey === "mage" && atkDir === "side") {
       const laserLen = 460, laserH = 12;
       const laserBeam = {
         ownerRole: actor.role, mode: "mage_laser",
@@ -4111,10 +4442,10 @@ function executeAttackForEntity(actor, useSmash, chargeRatio = 0) {
   return true;
 }
 
-function triggerAttack(useSmash, chargeRatio = 0) {
+function triggerAttack(useSmash, chargeRatio = 0, dirInput = null) {
   if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
   const me = players[myRole];
-  executeAttackForEntity(me, useSmash, chargeRatio);
+  executeAttackForEntity(me, useSmash, chargeRatio, dirInput);
 }
 
 const down = {};
@@ -4132,13 +4463,32 @@ window.addEventListener("keydown", e => {
     const me = players[myRole];
     if (!me || me.stocks <= 0) return;
     const spec = CHAR_SPECS[me.charKey];
-    if (!me.shielding && me.stun <= 0) {
-      if (e.code === "KeyW" && me.jumps > 0) { me.vy = spec.jumpPower; me.jumps--; }
-      if (e.code === "KeyS") me.dropThroughTimer = 12;
-      if (e.code === "KeyL") triggerAttack(false);
+
+    // Wキーのジャンプは最優先（L攻撃中・他キー押下中でも即ジャンプ発動）
+    if (e.code === "KeyW") {
+      if (me.stun <= 0 && !me.frozen && !me.burnedOut && !me.shielding && me.jumps > 0) {
+        me.vy = spec.jumpPower;
+        me.jumps--;
+        me.onGround = false;
+        sendMyState(me, true);
+      }
+    } else if (!me.shielding && me.stun <= 0) {
+      if (e.code === "KeyS") {
+        if (down["KeyL"]) {
+          triggerAttack(false, 0, "down");
+        } else {
+          me.dropThroughTimer = 12;
+        }
+      }
+      if (e.code === "KeyL") {
+        triggerAttack(false);
+      }
       if (e.code === "KeyI") {
         if (me.charKey === "elementalist") cycleElementMagic(me);
         else if (me.charKey === "trapper") cycleTrapMode(me);
+      }
+      if (e.code === "KeyU") {
+        executeUltimateForEntity(me);
       }
       if (e.code === "KeyK") {
         if (me.charKey === "enhancer") tryEnhanceSelf(me);
@@ -4167,8 +4517,36 @@ window.addEventListener("keyup", e => {
 });
 
 function getMeleeHitbox(p, nowMs = performance.now()) {
-  if (p.atkTimer <= 0 || !p.atkType || (p.charKey === "mage" && p.atkType === "light")) return null;
+  if (p.atkTimer <= 0 || !p.atkType) return null;
+  const atkDir = p.atkDir || "side";
+  if (p.charKey === "mage" && p.atkType === "light" && atkDir === "side") return null;
+
   const isSmash = p.atkType === "smash";
+  if (!isSmash && atkDir === "up") {
+    const w = 44;
+    const h = 34;
+    return {
+      x: p.x + p.w * 0.5 - w * 0.5,
+      y: p.y - h + 4,
+      w,
+      h,
+      isSmash: false,
+      atkDir: "up"
+    };
+  }
+  if (!isSmash && atkDir === "down") {
+    const w = 44;
+    const h = 30;
+    return {
+      x: p.x + p.w * 0.5 - w * 0.5,
+      y: p.y + p.h - 4,
+      w,
+      h,
+      isSmash: false,
+      atkDir: "down"
+    };
+  }
+
   const isHammerCrit = p.charKey === "hammer" && isSmash && isHammerCritState(p, nowMs);
   let w = isSmash ? 56 : 40;
   let h = isSmash ? 40 : 26;
@@ -4179,7 +4557,7 @@ function getMeleeHitbox(p, nowMs = performance.now()) {
   return {
     x: p.facing === 1 ? p.x + p.w - 2 : p.x - w + 2,
     y: p.y + (isHammerCrit ? -2 : (isSmash ? 2 : 9)),
-    w, h, isSmash
+    w, h, isSmash, atkDir: "side"
   };
 }
 
@@ -4238,14 +4616,14 @@ function sendMyState(me, force = false) {
       spectator: isSpectator,
       x: me.x, y: me.y, facing: me.facing,
       percent: me.percent, stocks: me.stocks,
-      atkType: me.atkType, atkTimer: me.atkTimer,
+      atkType: me.atkType, atkDir: me.atkDir || "side", atkTimer: me.atkTimer,
       enhanceLevel: me.enhanceLevel, hammerCharge: me.hammerCharge,
       critReady: me.critReady, critActive: me.critActive,
       critStartedAt: me.critStartedAt, critLightHitsAfterExpiry: me.critLightHitsAfterExpiry,
       guardianHits: me.guardianHits, invincibleTimer: me.invincibleTimer,
       hasClone: me.hasClone, mp: me.mp, magicMode: me.magicMode, trapMode: me.trapMode,
       frozen: me.frozen, stun: me.stun, charKey: me.charKey,
-      shielding: me.shielding, shieldHp: me.shieldHp, burnedOut: me.burnedOut
+      shielding: me.shielding, shieldHp: me.shieldHp, burnedOut: me.burnedOut, ultGauge: me.ultGauge || 0
     }
   }));
 }
@@ -4404,13 +4782,17 @@ function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
     if (((cl.x < ground.x + 28 && cl.vx < 0) || (cl.x + cl.w > ground.x + ground.w - 28 && cl.vx > 0) || (dy < -75 && Math.abs(dx) < 120 && Math.random() < 0.04)) && cl.jumps > 0 && cl.vy >= -1) {
       cl.vy = spec.jumpPower; cl.jumps--;
     }
-    const inAttackRange = cl.charKey === "mage" ? (Math.abs(dx) <= 360 && Math.abs(dy) <= 36) : (Math.abs(dx) <= 46 && Math.abs(dy) <= 36);
-    if (inAttackRange && cl.cooldown <= 0 && cl.atkTimer <= 0 && Math.random() < 0.14) {
+    const canUpHit = Math.abs(dx) <= 34 && dy < -18 && dy >= -48;
+    const canDownHit = Math.abs(dx) <= 34 && dy > 18 && dy <= 44;
+    const inSideRange = cl.charKey === "mage" ? (Math.abs(dx) <= 360 && Math.abs(dy) <= 36) : (Math.abs(dx) <= 46 && Math.abs(dy) <= 36);
+    if ((canUpHit || canDownHit || inSideRange) && cl.cooldown <= 0 && cl.atkTimer <= 0 && Math.random() < 0.14) {
+      const chosenDir = canUpHit ? "up" : (canDownHit ? "down" : "side");
+      cl.atkDir = chosenDir;
       cl.atkTimer = cl.charKey === "fighter" ? 7 : 10;
-      const baseCloneLightCd = cl.charKey === "mage" ? 16 : spec.lightCooldown;
+      const baseCloneLightCd = (cl.charKey === "mage" && chosenDir === "side") ? 16 : spec.lightCooldown;
       cl.cooldown = baseCloneLightCd + 28;
       cl.hasHit = false;
-      if (cl.charKey === "mage") {
+      if (cl.charKey === "mage" && chosenDir === "side") {
         const laserLen = 360, laserH = 10;
         const laserBeam = {
           ownerRole, fromClone: true, mode: "mage_laser",
@@ -4435,8 +4817,16 @@ function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
   if (cl.atkTimer > 0) { cl.atkTimer = Math.max(0, cl.atkTimer - dtScale); if (cl.atkTimer === 0) cl.hasHit = false; }
   if (cl.cooldown > 0) cl.cooldown = Math.max(0, cl.cooldown - dtScale);
 
-  if (cl.charKey !== "mage" && cl.atkTimer > 0 && !cl.hasHit) {
-    const hb = { x: cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, y: cl.y + 9, w: 38, h: 24 };
+  const clDir = cl.atkDir || "side";
+  if (!(cl.charKey === "mage" && clDir === "side") && cl.atkTimer > 0 && !cl.hasHit) {
+    let hb;
+    if (clDir === "up") {
+      hb = { x: cl.x + cl.w * 0.5 - 21, y: cl.y - 28, w: 42, h: 32 };
+    } else if (clDir === "down") {
+      hb = { x: cl.x + cl.w * 0.5 - 21, y: cl.y + cl.h - 4, w: 42, h: 28 };
+    } else {
+      hb = { x: cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, y: cl.y + 9, w: 38, h: 24 };
+    }
     const cx = cl.x + cl.w * 0.5;
     const cy = cl.y + cl.h * 0.5;
     for (const r of getParticipantRoles()) {
@@ -4445,12 +4835,19 @@ function updateCloneForOwner(ownerRole, dtScale, nowMs = performance.now()) {
       if (!target || !target.active || target.stocks <= 0) continue;
       if (doesMeleeHitEntity(hb, cx, cy, target)) {
         cl.hasHit = true;
-        sendHitFromActorToTarget(ownerRole, target.role, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, { fromClone: true, wasLight: true, wasSmash: false });
+        const dirSign = clDir === "side"
+          ? cl.facing
+          : (((target.x + target.w * 0.5) >= cx ? 1 : -1) * 0.25);
+        const upMult = clDir === "up" ? 1.35 : (clDir === "down" ? -0.55 : 0.55);
+        sendHitFromActorToTarget(ownerRole, target.role, Math.max(4, spec.lightDmg - 2), 4.5, dirSign, null, upMult, { fromClone: true, wasLight: true, wasSmash: false });
         break;
       }
     }
-    if (!cl.hasHit && checkHitEnemyClonesByBoxForActor(ownerRole, hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, 0.55, null, cx, cy, false, { wasLight: true, wasSmash: false })) {
-      cl.hasHit = true;
+    if (!cl.hasHit) {
+      const upMult = clDir === "up" ? 1.35 : (clDir === "down" ? -0.55 : 0.55);
+      if (checkHitEnemyClonesByBoxForActor(ownerRole, hb, Math.max(4, spec.lightDmg - 2), 4.5, cl.facing, null, upMult, null, cx, cy, false, { wasLight: true, wasSmash: false })) {
+        cl.hasHit = true;
+      }
     }
   }
 
@@ -4523,6 +4920,7 @@ function updateBeams(dtScale) {
         if (bm.mode === "fire") sendHitFromActorToTarget(bm.ownerRole, target.role, 0, 2.5, bm.dir, "burn", 0.62, { wasSmash: true });
         else if (bm.mode === "ice") sendHitFromActorToTarget(bm.ownerRole, target.role, 4, 0, bm.dir, "freeze", 0.62, { wasLight: true });
         else if (bm.mode === "mage_laser") sendHitFromActorToTarget(bm.ownerRole, target.role, bm.dmg || 8, bm.basePower || 5.0, bm.dir, null, 0.55, { wasLight: true, fromClone: !!bm.fromClone });
+        else if (bm.mode === "ult_beam") sendHitFromActorToTarget(bm.ownerRole, target.role, bm.dmg || 68, bm.basePower || 17.5, bm.dir, null, bm.upAngleMult || 0.68, { wasSmash: true, wasUlt: true });
       }
       if (!bm.hasHitCloneOwners) bm.hasHitCloneOwners = [];
       checkHitEnemyClonesByBoxForActor(
@@ -4537,7 +4935,7 @@ function updateBeams(dtScale) {
         originX,
         originY,
         false,
-        { wasSmash: bm.mode === "fire", wasLight: bm.mode !== "fire" }
+        { wasSmash: bm.mode === "fire", wasLight: bm.mode !== "fire", wasUlt: bm.mode === "ult_beam" }
       );
     }
     if (bm.life <= 0) beams.splice(i, 1);
@@ -4600,6 +4998,7 @@ function processEntityMeleeHits(actor, nowMs) {
 
   const originX = actor.x + actor.w * 0.5;
   const originY = actor.y + actor.h * 0.5;
+  const atkDir = hb.atkDir || "side";
 
   for (const r of getParticipantRoles()) {
     if (r === actor.role || isSameTeam(actor.role, r)) continue;
@@ -4642,7 +5041,14 @@ function processEntityMeleeHits(actor, nowMs) {
           }
           if (actor.role === myRole) sendMyState(actor, true);
         }
-        sendHitFromActorToTarget(actor.role, target.role, lightStats.dmg, lightStats.basePower, actor.facing, null, 0.62, { wasLight: true, wasSmash: false });
+        const targetCenterX = target.x + target.w * 0.5;
+        const dirSign = atkDir === "side"
+          ? actor.facing
+          : ((targetCenterX >= originX ? 1 : -1) * 0.25);
+        const upMult = atkDir === "up"
+          ? 1.45
+          : (atkDir === "down" ? (actor.onGround ? 0.50 : -0.65) : 0.62);
+        sendHitFromActorToTarget(actor.role, target.role, lightStats.dmg, lightStats.basePower, dirSign, null, upMult, { wasLight: true, wasSmash: false });
       }
       break;
     }
@@ -4669,7 +5075,11 @@ function processEntityMeleeHits(actor, nowMs) {
       }
     } else {
       const lightStats = getEffectiveLightStats(actor, spec);
-      if (checkHitEnemyClonesByBoxForActor(actor.role, hb, lightStats.dmg, lightStats.basePower, actor.facing, null, 0.62, null, originX, originY, false, { wasLight: true, wasSmash: false })) {
+      const upMult = atkDir === "up"
+        ? 1.45
+        : (atkDir === "down" ? (actor.onGround ? 0.50 : -0.65) : 0.62);
+      const dirSign = atkDir === "side" ? actor.facing : (actor.facing * 0.25);
+      if (checkHitEnemyClonesByBoxForActor(actor.role, hb, lightStats.dmg, lightStats.basePower, dirSign, null, upMult, null, originX, originY, false, { wasLight: true, wasSmash: false })) {
         actor.hasHit = true;
       }
     }
@@ -4781,8 +5191,10 @@ function pickWeightedBotAction(candidates) {
 
 function buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, isRecovering) {
   const candidates = [];
-  const absDx = target ? Math.abs((target.x + target.w * 0.5) - (bot.x + bot.w * 0.5)) : Infinity;
-  const absDy = target ? Math.abs((target.y + target.h * 0.5) - (bot.y + bot.h * 0.5)) : Infinity;
+  const dx = target ? ((target.x + target.w * 0.5) - (bot.x + bot.w * 0.5)) : 0;
+  const dy = target ? ((target.y + target.h * 0.5) - (bot.y + bot.h * 0.5)) : 0;
+  const absDx = target ? Math.abs(dx) : Infinity;
+  const absDy = target ? Math.abs(dy) : Infinity;
   const alignedHeight = absDy <= 42;
 
   if (canUseEnhanceAction(bot, nowMs) && lv >= 3) {
@@ -4844,6 +5256,19 @@ function buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, i
   }
 
   if (!isRecovering && target && canUseStandardLight(bot)) {
+    if (absDx <= 36 && dy < -18 && dy >= -54) {
+      candidates.push({
+        type: "light",
+        dir: "up",
+        weight: 0.05 + lvRatio * 0.09
+      });
+    } else if (absDx <= 36 && dy > 18 && dy <= 48) {
+      candidates.push({
+        type: "light",
+        dir: "down",
+        weight: 0.045 + lvRatio * 0.08
+      });
+    }
     const lightRangeX = bot.charKey === "mage" ? 350 : (bot.charKey === "fighter" ? 64 : 58);
     const lightRangeY = bot.charKey === "mage" ? 34 : 42;
     if (absDx <= lightRangeX && absDy <= lightRangeY) {
@@ -4853,6 +5278,7 @@ function buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, i
       if (bot.charKey === "mage" && absDx < 36) lightWeight *= 0.45;
       candidates.push({
         type: "light",
+        dir: "side",
         weight: lightWeight
       });
     }
@@ -4905,6 +5331,14 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
   const mainPlayer = players[1];
 
   if (bot.stun <= 0 && !bot.burnedOut && !bot.frozen) {
+    if (canUseUltimateAction(bot) && target) {
+      const bdx = Math.abs((target.x + target.w * 0.5) - (bot.x + bot.w * 0.5));
+      const bdy = Math.abs((target.y + target.h * 0.5) - (bot.y + bot.h * 0.5));
+      if (bdx <= 240 && bdy <= 130 && Math.random() < (0.04 + lvRatio * 0.08) * dtScale) {
+        bot.facing = ((target.x + target.w * 0.5) >= (bot.x + bot.w * 0.5)) ? 1 : -1;
+        executeUltimateForEntity(bot, nowMs);
+      }
+    }
     const botCenterX = bot.x + bot.w * 0.5;
     const botCenterY = bot.y + bot.h * 0.5;
     const botFootY = bot.y + bot.h;
@@ -4947,23 +5381,12 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
       const belowPlatform = botFootY > recPlat.y + 12;
       const fallingFast = bot.vy > 2.4;
       const criticalHeight = bot.y > canvas.height - 135 || bot.x < 70 || bot.x > canvas.width - 70;
-      const keepLastJump = bot.jumps === 1 && !criticalHeight && bot.vy < 4.5 && !useWarp;
+      const keepLastJump = bot.jumps === 1 && !criticalHeight && bot.vy < 5.5 && lv >= 4;
 
-      if (!wantDropThrough && bot.jumps > 0 && !keepLastJump && (fallingFast || belowPlatform || criticalHeight)) {
-        const jumpTriggerChance = criticalHeight ? 0.85 : (0.11 + lvRatio * 0.18);
-        if (Math.random() < jumpTriggerChance * dtScale) {
-          bot.vy = spec.jumpPower;
-          bot.jumps--;
-        }
-      }
-
-      if (!useWarp && target && canUseStandardLight(bot) && bot.vy < 4.0) {
-        const tdx = (target.x + target.w * 0.5) - botCenterX;
-        const tdy = (target.y + target.h * 0.5) - botCenterY;
-        if (Math.abs(tdx) < 150 && Math.abs(tdy) < 38 && Math.random() < (0.015 + lvRatio * 0.035) * dtScale) {
-          bot.facing = tdx >= 0 ? 1 : -1;
-          executeAttackForEntity(bot, false, 0);
-        }
+      if (bot.jumps > 0 && !keepLastJump && ((belowPlatform && fallingFast) || criticalHeight || (!useWarp && bot.vy > 4.2))) {
+        bot.vy = spec.jumpPower;
+        bot.jumps--;
+        bot.onGround = false;
       }
     } else if (target) {
       const targetCenterX = target.x + target.w * 0.5;
@@ -4971,71 +5394,80 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
       const dx = targetCenterX - botCenterX;
       const dy = targetCenterY - botCenterY;
       const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
 
-      const moveIntensity = 0.65 + lvRatio * 0.30;
-      const desiredRange = (bot.charKey === "mage" || bot.charKey === "elementalist") ? 215 : 44;
+      const moveDir = absDx > 6 ? Math.sign(dx) : 0;
+      if (moveDir !== 0 && !bot.smashCharging) bot.facing = moveDir;
 
-      if (!bot.smashCharging) {
-        bot.facing = dx >= 0 ? 1 : -1;
-        if (absDx > desiredRange) {
-          wantMoveDir = bot.facing * moveIntensity;
-        } else if (absDx < 22 && bot.charKey === "mage" && lv >= 5) {
-          wantMoveDir = -bot.facing * 0.45;
-        }
-      }
-
-      if (dy > 28 && dropPlat && bot.y < 425 && bot.dropThroughTimer <= 0) {
-        const dropChance = 0.22 + lvRatio * 0.28;
-        if (Math.random() < dropChance * dtScale) {
-          wantDropThrough = true;
-        }
-      } else if (dy < -48 && bot.jumps > 1 && bot.vy >= -1.5) {
-        const jumpProb = 0.03 + lvRatio * 0.08;
-        if (Math.random() < jumpProb * dtScale) {
-          bot.vy = spec.jumpPower;
-          bot.jumps--;
-        }
-      }
-
-      if (!wantDropThrough && lv >= 6 && !bot.smashCharging && bot.atkTimer <= 0 && bot.shieldHp > 50 && mainPlayer && mainPlayer.atkTimer > 0 && absDx < 78 && Math.abs(dy) < 42) {
-        const shieldChance = (lv - 5) * 0.032;
-        if (Math.random() < shieldChance) {
+      if (lv >= 4 && !bot.smashCharging && !bot.burnedOut && bot.shieldHp > 24 && absDx < 105 && absDy < 48) {
+        const threatActive = (mainPlayer && mainPlayer.active && mainPlayer.stocks > 0 && (mainPlayer.atkTimer > 0 || mainPlayer.smashCharging));
+        if (threatActive && Math.random() < (0.04 + lvRatio * 0.16) * dtScale) {
           wantShield = true;
         }
       }
 
-      if (!wantShield && !wantDropThrough) {
+      if (!wantShield) {
+        const approachFactor = 0.65 + lvRatio * 0.35;
+        const preferredDist = bot.charKey === "mage" ? 210 : (bot.charKey === "trapper" ? 95 : 42);
         if (bot.smashCharging) {
-          if (!canUseStandardSmash(bot) && !bot.smashCharging) {
+          wantMoveDir = 0;
+        } else if (bot.charKey === "mage" && absDx < 120 && absDy < 45 && lv >= 5) {
+          const awayDir = dx >= 0 ? -1 : 1;
+          const safeX = botCenterX + awayDir * 24;
+          if (safeX > ground.x + 24 && safeX < ground.x + ground.w - 24) {
+            wantMoveDir = awayDir * 0.7 * approachFactor;
+          }
+        } else if (absDx > preferredDist) {
+          wantMoveDir = moveDir * approachFactor;
+        }
+
+        if (bot.charKey === "trapper" && onGround && absDx < 170 && Math.random() < (0.02 + lvRatio * 0.03) * dtScale) {
+          const stepDir = dx >= 0 ? -1 : 1;
+          const nextTrapX = botCenterX + stepDir * 28;
+          if (nextTrapX > ground.x + 20 && nextTrapX < ground.x + ground.w - 20) {
+            wantMoveDir = stepDir * 0.65;
+          }
+        }
+
+        if (dropPlat && dy > 32 && absDx < 110 && bot.dropThroughTimer <= 0 && lv >= 4 && Math.random() < (0.04 + lvRatio * 0.08) * dtScale) {
+          wantDropThrough = true;
+        }
+
+        if (!wantDropThrough && dy < -52 && absDx < 130 && bot.jumps > 0 && bot.vy >= -1.5 && Math.random() < (0.02 + lvRatio * 0.055) * dtScale) {
+          bot.vy = spec.jumpPower;
+          bot.jumps--;
+          bot.onGround = false;
+        }
+
+        if (bot.smashCharging) {
+          const chargedMs = Date.now() - (bot.smashChargeStart || Date.now());
+          const targetChargeMs = 220 + Math.floor((1 - lvRatio) * 520) + Math.floor(Math.random() * 260);
+          if (chargedMs >= targetChargeMs || absDx > 95) {
             bot.smashCharging = false;
-          } else {
-            const heldMs = Date.now() - bot.smashChargeStart;
-            const releaseWindow = absDx < 76 && Math.abs(dy) <= 42;
-            const maxHoldMs = lv >= 8 ? 650 : 950;
-            if (releaseWindow || heldMs >= maxHoldMs) {
-              bot.smashCharging = false;
-              executeAttackForEntity(bot, true, Math.min(heldMs / 1500, 0.65));
-            }
+            executeAttackForEntity(bot, true, Math.min(chargedMs / 1500, 1.0), null);
           }
         } else {
           const candidates = buildBotActionCandidates(bot, target, mainPlayer, lv, lvRatio, nowMs, false);
           const chosen = pickWeightedBotAction(candidates);
-          if (chosen && Math.random() < Math.min(0.85, chosen.weight * 3.2) * dtScale) {
+          if (chosen && Math.random() < (0.28 + lvRatio * 0.45) * dtScale) {
             if (chosen.type === "enhance") {
               tryEnhanceSelfForEntity(bot);
             } else if (chosen.type === "summon") {
               trySummonCloneForRole(2);
             } else if (chosen.type === "trap") {
-              bot.trapMode = chosen.mode || "explosion";
+              bot.trapMode = chosen.mode;
               tryPlaceTrapForEntity(bot, nowMs);
             } else if (chosen.type === "magic") {
               bot.magicMode = chosen.mode;
               castSelectedElementMagic(bot);
             } else if (chosen.type === "light") {
-              executeAttackForEntity(bot, false, 0);
+              if (chosen.dir === "side" && moveDir !== 0) bot.facing = moveDir;
+              executeAttackForEntity(bot, false, 0, chosen.dir);
             } else if (chosen.type === "smash_instant") {
-              executeAttackForEntity(bot, true, chosen.chargeRatio || 0.08);
+              if (moveDir !== 0) bot.facing = moveDir;
+              executeAttackForEntity(bot, true, chosen.chargeRatio || 0.1, null);
             } else if (chosen.type === "smash_charge") {
+              if (moveDir !== 0) bot.facing = moveDir;
               bot.smashCharging = true;
               bot.smashChargeStart = Date.now();
             }
@@ -5043,54 +5475,47 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
         }
       }
     }
+  } else {
+    bot.smashCharging = false;
   }
 
-  if (wantShield && !bot.burnedOut && bot.stun <= 0 && bot.atkTimer <= 0 && !bot.smashCharging && !isRecovering) {
+  if (bot.burnedOut) {
+    bot.shieldHp = Math.min(MAX_SHIELD, bot.shieldHp + 0.55 * dtScale);
+    if (bot.shieldHp >= MAX_SHIELD) {
+      bot.burnedOut = false;
+      bot.shieldHp = MAX_SHIELD;
+    }
+  } else if (wantShield && bot.stun <= 0 && !bot.frozen && bot.shieldHp > 0) {
     bot.shielding = true;
-    bot.shieldHp -= (spec.shieldDrain * 1.15) * dtScale;
+    bot.vx *= Math.pow(0.75, dtScale);
+    bot.shieldHp = Math.max(0, bot.shieldHp - spec.shieldDrain * dtScale);
     if (bot.shieldHp <= 0) triggerBurnout(bot);
   } else {
     bot.shielding = false;
-    if (bot.shieldHp < MAX_SHIELD && !bot.burnedOut) {
-      bot.shieldHp = Math.min(MAX_SHIELD, bot.shieldHp + 0.30 * dtScale);
-    }
+    bot.shieldHp = Math.min(MAX_SHIELD, bot.shieldHp + 0.35 * dtScale);
   }
 
-  const canMove = bot.stun <= 0 && !bot.shielding && !bot.smashCharging;
-  const acc = canMove ? getEffectiveMoveAcc(bot, spec) : 0;
-  if (canMove && wantMoveDir !== 0) {
-    bot.vx += wantMoveDir * acc * dtScale;
-  }
-  if (canMove && wantDropThrough && bot.dropThroughTimer <= 0) {
-    bot.dropThroughTimer = 12;
-  }
-
-  const botFriction = bot.onIce ? 0.965 : spec.friction;
-  bot.vx *= bot.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(botFriction, dtScale);
-  bot.vy += 0.56 * dtScale;
-
-  const prevX = bot.x, prevY = bot.y;
-  bot.x += bot.vx * dtScale;
-  bot.y += bot.vy * dtScale;
-  if (bot.dropThroughTimer > 0) bot.dropThroughTimer = Math.max(0, bot.dropThroughTimer - dtScale);
-  resolveStageCollisions(bot, prevX, prevY, maxJumps, bot.dropThroughTimer > 0, dtScale);
-
-  if (bot.atkTimer > 0) {
-    bot.atkTimer = Math.max(0, bot.atkTimer - dtScale);
-    if (bot.atkTimer === 0) {
-      bot.atkType = null;
-      bot.hasHit = false;
-      bot.critActive = false;
-    }
-  }
-  if (bot.cooldown > 0) bot.cooldown = Math.max(0, bot.cooldown - dtScale);
   if (bot.stun > 0) {
     bot.stun = Math.max(0, bot.stun - dtScale);
-    if (bot.stun === 0) {
-      bot.frozen = false;
-      if (bot.burnedOut) { bot.burnedOut = false; bot.shieldHp = 60; }
-    }
+    if (bot.stun === 0) bot.frozen = false;
+    bot.vx *= Math.pow(0.96, dtScale);
+  } else if (!bot.shielding) {
+    const moveAcc = getEffectiveMoveAcc(bot, spec);
+    if (Math.abs(wantMoveDir) > 0.01) bot.vx += wantMoveDir * moveAcc * dtScale;
+    const damp = bot.onIce ? 0.94 : spec.friction;
+    bot.vx *= Math.pow(damp, dtScale);
   }
+
+  if (bot.dropThroughTimer > 0) bot.dropThroughTimer = Math.max(0, bot.dropThroughTimer - dtScale);
+  const prevX = bot.x, prevY = bot.y;
+  bot.vy += 0.56 * dtScale;
+  bot.x += bot.vx * dtScale;
+  bot.y += bot.vy * dtScale;
+
+  resolveStageCollisions(bot, prevX, prevY, maxJumps, bot.dropThroughTimer > 0, dtScale);
+
+  if (bot.atkTimer > 0) { bot.atkTimer = Math.max(0, bot.atkTimer - dtScale); if (bot.atkTimer === 0) bot.hasHit = false; }
+  if (bot.cooldown > 0) bot.cooldown = Math.max(0, bot.cooldown - dtScale);
 
   processEntityMeleeHits(bot, nowMs);
 
@@ -5099,606 +5524,540 @@ function updatePracticeBot(dtScale, nowMs = performance.now()) {
   }
 }
 
-function updateMyPlayer(dtScale, nowMs = performance.now()) {
-  if (isPublicLobbyRoom() || phase !== "playing" || (isPracticeMode && isPracticeStopped) || entryBlockedByHost || isRoomFullBlocked || isSpectator || myRole === 0) return;
-  const me = players[myRole];
-  if (!me || me.stocks <= 0) return;
-  const spec = CHAR_SPECS[me.charKey];
-  const maxJumps = getMaxJumpsForPlayer(me);
-
-  if ((me.invincibleTimer || 0) > 0) me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
-  if (me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp ?? MAX_MP) + (1 / 60) * dtScale);
-
-  if (me.charKey === "hammer") {
-    ensureHammerCritState(me, nowMs);
-  }
-
-  if (down["KeyJ"] && !me.burnedOut && me.stun <= 0 && me.atkTimer <= 0 && !me.smashCharging) {
-    me.shielding = true;
-    me.shieldHp -= spec.shieldDrain * dtScale;
-    if (me.shieldHp <= 0) triggerBurnout(me);
-  } else {
-    me.shielding = false;
-    if (me.shieldHp < MAX_SHIELD && !me.burnedOut) me.shieldHp = Math.min(MAX_SHIELD, me.shieldHp + 0.35 * dtScale);
-  }
-
-  const canMove = me.stun <= 0 && !me.shielding && !me.smashCharging;
-  const acc = canMove ? getEffectiveMoveAcc(me, spec) : 0;
-  if (canMove && down["KeyA"]) { me.vx -= acc * dtScale; me.facing = -1; }
-  if (canMove && down["KeyD"]) { me.vx += acc * dtScale; me.facing = 1; }
-  if (canMove && down["KeyS"] && me.dropThroughTimer <= 0) me.dropThroughTimer = 8;
-
-  const myFriction = me.onIce ? 0.965 : spec.friction;
-  me.vx *= me.stun > 0 ? Math.pow(0.94, dtScale) : Math.pow(myFriction, dtScale);
-  me.vy += 0.56 * dtScale;
-
-  const prevX = me.x, prevY = me.y;
-  me.x += me.vx * dtScale; me.y += me.vy * dtScale;
-  if (me.dropThroughTimer > 0) me.dropThroughTimer = Math.max(0, me.dropThroughTimer - dtScale);
-  resolveStageCollisions(me, prevX, prevY, maxJumps, (canMove && down["KeyS"]) || me.dropThroughTimer > 0, dtScale);
-
-  if (me.atkTimer > 0) {
-    me.atkTimer = Math.max(0, me.atkTimer - dtScale);
-    if (me.atkTimer === 0) {
-      me.atkType = null;
-      me.hasHit = false;
-      me.critActive = false;
-    }
-  }
-  if (me.cooldown > 0) me.cooldown = Math.max(0, me.cooldown - dtScale);
-  if (me.stun > 0) {
-    me.stun = Math.max(0, me.stun - dtScale);
-    if (me.stun === 0) {
-      botFrozenCleanup(me);
-    }
-  }
-
-  processEntityMeleeHits(me, nowMs);
-
-  if (me.x < -160 || me.x > canvas.width + 160 || me.y > canvas.height + 160) {
-    handleEntityRingOut(me);
+function update(dtScale) {
+  const nowMs = performance.now();
+  if (isPracticeMode && isPracticeStopped) {
     return;
   }
 
-  sendMyState(me, false);
-}
+  if (phase === "playing") {
+    updateStageGimmicks(dtScale);
+  } else {
+    initStageGimmicks(getCurrentStage(), false);
+  }
 
-function botFrozenCleanup(entity) {
-  entity.frozen = false;
-  if (entity.burnedOut) { entity.burnedOut = false; entity.shieldHp = 60; }
-}
+  updateTraps(dtScale);
+  updateUltEffects(dtScale);
 
-function updateProjectiles(dtScale) {
-  for (let i = projectiles.length - 1; i >= 0; i--) {
-    const pr = projectiles[i];
-    const prevX = pr.x;
-    const prevY = pr.y;
-    pr.x += pr.vx * dtScale;
-    pr.y += pr.vy * dtScale;
-    pr.life -= dtScale;
+  if (isPublicLobbyRoom() || entryBlockedByHost || isRoomFullBlocked) {
+    updateBeams(dtScale); updateRings(dtScale);
+    return;
+  }
 
-    const projBox = { x: pr.x, y: pr.y, w: 14, h: 14 };
-    const hitObstacle = getAllStageObstacles().some(ob =>
-      rectsOverlap(projBox, ob) ||
-      segmentIntersectsRect(prevX + 7, prevY + 7, pr.x + 7, pr.y + 7, ob.x, ob.y, ob.w, ob.h)
-    );
-    if (hitObstacle) {
-      projectiles.splice(i, 1);
-      continue;
-    }
+  if (phase === "playing") {
+    updatePracticeBot(dtScale, nowMs);
 
-    const isAuthoritative = !isPublicLobbyRoom() && phase === "playing" && !(isPracticeMode && isPracticeStopped) && !entryBlockedByHost && !isRoomFullBlocked &&
-      ((pr.ownerRole === myRole && !isSpectator) || (isPracticeMode && pr.ownerRole === 2));
+    if (!isSpectator && myRole !== 0) {
+      const me = players[myRole];
+      if (me && me.active && me.stocks > 0) {
+        const spec = CHAR_SPECS[me.charKey];
+        const maxJumps = getMaxJumpsForPlayer(me);
 
-    if (isAuthoritative) {
-      for (const r of getParticipantRoles()) {
-        if (r === pr.ownerRole || isSameTeam(pr.ownerRole, r)) continue;
-        const target = players[r];
-        if (!target || !target.active || target.stocks <= 0) continue;
-        if (rectsOverlap(projBox, target) || segmentIntersectsRect(prevX + 7, prevY + 7, pr.x + 7, pr.y + 7, target.x, target.y, target.w, target.h)) {
-          sendHitFromActorToTarget(pr.ownerRole, target.role, pr.dmg, pr.basePower, pr.dir, null, 0.62, { wasLight: true });
-          projectiles.splice(i, 1); break;
+        if ((me.invincibleTimer || 0) > 0) me.invincibleTimer = Math.max(0, me.invincibleTimer - dtScale);
+        if (me.charKey === "elementalist") me.mp = Math.min(MAX_MP, (me.mp ?? MAX_MP) + (1 / 60) * dtScale);
+        if (me.charKey === "hammer") ensureHammerCritState(me, nowMs);
+
+        if (me.burnedOut) {
+          me.shieldHp = Math.min(MAX_SHIELD, me.shieldHp + 0.55 * dtScale);
+          if (me.shieldHp >= MAX_SHIELD) {
+            me.burnedOut = false;
+            me.shieldHp = MAX_SHIELD;
+          }
+        } else if (down["KeyJ"] && me.stun <= 0 && !me.frozen && me.shieldHp > 0) {
+          me.shielding = true; me.smashCharging = false;
+          me.vx *= Math.pow(0.75, dtScale);
+          me.shieldHp = Math.max(0, me.shieldHp - spec.shieldDrain * dtScale);
+          if (me.shieldHp <= 0) triggerBurnout(me);
+        } else {
+          me.shielding = false;
+          me.shieldHp = Math.min(MAX_SHIELD, me.shieldHp + 0.35 * dtScale);
         }
-      }
-      if (!projectiles[i]) continue;
-      if (checkHitEnemyClonesByBoxForActor(pr.ownerRole, projBox, pr.dmg, pr.basePower, pr.dir, null, 0.62, null, null, null, false, { wasLight: true })) {
-        projectiles.splice(i, 1); continue;
+
+        if (me.stun > 0) {
+          me.stun = Math.max(0, me.stun - dtScale);
+          if (me.stun === 0) me.frozen = false;
+          me.vx *= Math.pow(0.96, dtScale);
+        } else if (!me.shielding) {
+          const moveAcc = getEffectiveMoveAcc(me, spec);
+          if (down["KeyA"] && !me.smashCharging) { me.vx -= moveAcc * dtScale; me.facing = -1; }
+          if (down["KeyD"] && !me.smashCharging) { me.vx += moveAcc * dtScale; me.facing = 1; }
+          const damp = me.onIce ? 0.94 : spec.friction;
+          me.vx *= Math.pow(damp, dtScale);
+        }
+
+        if (me.dropThroughTimer > 0) me.dropThroughTimer = Math.max(0, me.dropThroughTimer - dtScale);
+        const prevX = me.x, prevY = me.y;
+        me.vy += 0.56 * dtScale;
+        me.x += me.vx * dtScale; me.y += me.vy * dtScale;
+
+        resolveStageCollisions(me, prevX, prevY, maxJumps, me.dropThroughTimer > 0 || !!down["KeyS"], dtScale);
+
+        if (me.atkTimer > 0) { me.atkTimer = Math.max(0, me.atkTimer - dtScale); if (me.atkTimer === 0) me.hasHit = false; }
+        if (me.cooldown > 0) me.cooldown = Math.max(0, me.cooldown - dtScale);
+
+        processEntityMeleeHits(me, nowMs);
+
+        if (me.x < -160 || me.x > canvas.width + 160 || me.y > canvas.height + 160) {
+          handleEntityRingOut(me);
+        }
+        sendMyState(me, false);
       }
     }
-    if (pr.life <= 0 || pr.x < -60 || pr.x > canvas.width + 60) projectiles.splice(i, 1);
+    updateMyClone(dtScale, nowMs);
+    updateBurnDebuffs(dtScale);
   }
+
+  updateBeams(dtScale);
+  updateRings(dtScale);
 }
 
-function renderStocks(stocks, x, y, color) {
-  for (let i = 0; i < MAX_STOCK; i++) {
-    ctx.beginPath();
-    ctx.arc(x + i * 18, y, 6.5, 0, Math.PI * 2);
-    if (i < stocks) { ctx.fillStyle = color; ctx.fill(); }
-    else { ctx.strokeStyle = "#64748b"; ctx.lineWidth = 2; ctx.stroke(); }
-  }
-}
-
-function drawPublicLobbyCenterGuide() {
-  const cardW = 680;
-  const cardH = 310;
-  const cardX = (canvas.width - cardW) / 2;
-  const cardY = (canvas.height - cardH) / 2;
-  const uniformColor = "#e2e8f0";
+function drawPlayerFigure(p, displayName, isMe, now, overrideColor = null, isCloneEntity = false) {
+  const spec = CHAR_SPECS[p.charKey] || CHAR_SPECS.fighter;
+  const cx = p.x + p.w / 2;
+  const baseColor = overrideColor || sanitizeColorHex(p.color || spec.color, p.role || 1);
+  const drawColor = p.frozen ? "#7dd3fc" : (p.burnedOut ? "#64748b" : baseColor);
+  const isCritNow = p.charKey === "hammer" && isHammerCritState(p, now);
 
   ctx.save();
-  ctx.fillStyle = "rgba(15, 23, 42, 0.86)";
-  ctx.strokeStyle = "#38bdf8";
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  if (ctx.roundRect) {
-    ctx.roundRect(cardX, cardY, cardW, cardH, 14);
-  } else {
-    ctx.rect(cardX, cardY, cardW, cardH);
+  if (isCloneEntity) ctx.globalAlpha = 0.62;
+  else if ((p.invincibleTimer || 0) > 0) ctx.globalAlpha = Math.sin(now / 55) > 0 ? 0.92 : 0.35;
+
+  if (p.shielding && !p.burnedOut) {
+    const r = Math.max(26, Math.min(44, 24 + (p.shieldHp / MAX_SHIELD) * 18));
+    ctx.beginPath();
+    ctx.arc(p.x + p.w / 2, p.y + p.h / 2, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(56, 189, 248, 0.25)";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#7dd3fc";
+    ctx.stroke();
   }
-  ctx.fill();
-  ctx.stroke();
 
-  ctx.textAlign = "center";
-  ctx.font = "bold 24px sans-serif";
-  ctx.fillStyle = uniformColor;
-  ctx.fillText(`🏠 ${LOBBY_SECTION_NAME}のご案内`, canvas.width / 2, cardY + 46);
+  if (p.burnedOut) {
+    ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x + p.w / 2, p.y - 10, 7, 0, Math.PI * 1.65);
+    ctx.stroke();
+  }
 
-  ctx.font = "bold 14px sans-serif";
-  ctx.fillStyle = uniformColor;
-  ctx.fillText(
-    `現在の待機人数：${activeRoles.length} / ${MAX_LOBBY_PLAYERS}人 ｜ あなたの名前：${myName || "未設定"}`,
-    canvas.width / 2,
-    cardY + 78
-  );
+  if (p.charKey === "enhancer" && (p.enhanceLevel || 0) > 0) {
+    ctx.strokeStyle = "#34d399"; ctx.lineWidth = 2.5;
+    ctx.strokeRect(p.x - 3, p.y - 3, p.w + 6, p.h + 6);
+  }
 
-  ctx.strokeStyle = "#334155";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(cardX + 44, cardY + 96);
-  ctx.lineTo(cardX + cardW - 44, cardY + 96);
-  ctx.stroke();
+  if (isCritNow) {
+    ctx.strokeStyle = "#facc15"; ctx.lineWidth = 3;
+    ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
+  }
 
-  const lines = [
-    "① 対戦したいときは：上の「合言葉」欄に入力して「合言葉入室」を押してください（最大4人）",
-    "② ひとりで練習したいときは：「🤖 練習場」を押すとCPU（Lv.1〜10）と遊べます",
-    "③ 雑談・募集したいときは：右側の「💬 コメント」欄からメッセージを送れます",
-    "④ 名前を変えたいときは：上の入力欄からいつでも変更できます"
-  ];
+  ctx.fillStyle = drawColor;
+  ctx.fillRect(p.x, p.y, p.w, p.h);
 
-  ctx.font = "bold 14px sans-serif";
-  ctx.fillStyle = uniformColor;
-  lines.forEach((lineText, idx) => {
-    ctx.fillText(lineText, canvas.width / 2, cardY + 132 + idx * 36);
-  });
+  if (p.frozen) {
+    ctx.strokeStyle = "#e0f2fe"; ctx.lineWidth = 2;
+    ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
+  }
 
-  ctx.font = "12px sans-serif";
-  ctx.fillStyle = uniformColor;
-  ctx.fillText("※ 合言葉部屋に入ると、マップ選択・カラー選択・キャラ選択・10秒カウントが始まります", canvas.width / 2, cardY + cardH - 22);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(p.facing === 1 ? p.x + p.w - 11 : p.x + 3, p.y + 9, 8, 8);
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(p.facing === 1 ? p.x + p.w - 7 : p.x + 5, p.y + 11, 4, 4);
+
+  const hb = getMeleeHitbox(p, now);
+  if (hb) {
+    ctx.fillStyle = isCritNow ? "rgba(250, 204, 21, 0.65)" : (hb.isSmash ? "rgba(251, 191, 36, 0.55)" : "rgba(255, 255, 255, 0.45)");
+    ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
+  }
+
+  if (p.smashCharging) {
+    const ratio = Math.min((Date.now() - p.smashChargeStart) / 1500, 1.0);
+    ctx.fillStyle = "#1e293b"; ctx.fillRect(p.x - 3, p.y - 16, p.w + 6, 6);
+    ctx.fillStyle = "#fbbf24"; ctx.fillRect(p.x - 3, p.y - 16, (p.w + 6) * ratio, 6);
+  }
+
+  ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center";
+  const labelY = p.smashCharging ? p.y - 22 : p.y - 8;
+  ctx.fillStyle = isCritNow ? "#facc15" : (isMe ? "#fde047" : "#f8fafc");
+  ctx.fillText(displayName, cx, labelY);
+  ctx.textAlign = "left";
   ctx.restore();
 }
 
-function loop(now) {
-  const dtScale = Math.min((now - lastFrameTime) / (1000 / 60), 2.5);
-  lastFrameTime = now;
-
-  const st = getCurrentStage();
-  ctx.fillStyle = st.bgColor;
+function drawPublicLobbyScene(now) {
+  ctx.save();
+  ctx.fillStyle = "#141c2b";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  if (!(isPracticeMode && isPracticeStopped)) {
-    updateStageGimmicks(dtScale);
-    updateMyPlayer(dtScale, now);
-    updatePracticeBot(dtScale, now);
-    updateMyClone(dtScale, now);
-    updateBurnDebuffs(dtScale);
-    updateBeams(dtScale);
-    updateRings(dtScale);
-    updateTraps(dtScale);
-    updateProjectiles(dtScale);
-  }
+  ctx.fillStyle = "#1e293b";
+  ctx.fillRect(36, 28, canvas.width - 72, canvas.height - 56);
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(36, 28, canvas.width - 72, canvas.height - 56);
 
-  for (const solid of (st.solids || [])) {
-    ctx.fillStyle = st.groundColor;
-    ctx.fillRect(solid.x, solid.y, solid.w, solid.h);
-    ctx.strokeStyle = st.groundBorder;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(solid.x, solid.y, solid.w, solid.h);
-  }
+  ctx.fillStyle = "#38bdf8";
+  ctx.font = "bold 24px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`🏛️ ${LOBBY_SECTION_NAME}`, canvas.width * 0.5, 76);
 
-  if (Array.isArray(st.iceFloors)) {
-    for (const ice of st.iceFloors) {
-      ctx.fillStyle = "rgba(125, 211, 252, 0.85)";
-      ctx.fillRect(ice.x, ice.y, ice.w, ice.h);
-      ctx.strokeStyle = "#e0f2fe";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(ice.x, ice.y, ice.w, ice.h);
-    }
-  }
+  ctx.fillStyle = "#cbd5e1";
+  ctx.font = "14px sans-serif";
+  ctx.fillText("合言葉を入力して「合言葉入室」を押すと、最大4人の対戦部屋へ移動できます（空欄のままなら公開待機ロビー）。", canvas.width * 0.5, 108);
 
-  if (Array.isArray(st.hazardZones)) {
-    for (const hz of st.hazardZones) {
-      const pulse = 0.75 + 0.25 * Math.sin(now * 0.01);
-      ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;
-      ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
-      ctx.fillStyle = "#fde047";
-      ctx.fillRect(hz.x, hz.y, hz.w, 3);
-      if (hz.label) {
-        ctx.font = "bold 11px sans-serif";
-        ctx.fillStyle = "#fef08a";
-        ctx.textAlign = "center";
-        ctx.fillText(hz.label, hz.x + hz.w * 0.5, hz.y + hz.h + 13);
-        ctx.textAlign = "left";
-      }
-    }
-  }
+  const memberRoles = activeRoles.length > 0 ? activeRoles : (myRole > 0 ? [myRole] : []);
+  ctx.fillStyle = "#fbbf24";
+  ctx.font = "bold 16px sans-serif";
+  ctx.fillText(`現在のロビー入室人数：${memberRoles.length} / ${MAX_LOBBY_PLAYERS} 人`, canvas.width * 0.5, 146);
 
-  for (const plat of (st.platforms || [])) {
-    ctx.fillStyle = st.platColor;
-    ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
-    ctx.setLineDash([6, 4]);
-    ctx.strokeStyle = "#e2e8f0";
-    ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
-    ctx.setLineDash([]);
-  }
+  if (memberRoles.length === 0) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "15px sans-serif";
+    ctx.fillText("ロビー接続中...", canvas.width * 0.5, 250);
+  } else {
+    const cols = 6;
+    const cellW = 152;
+    const cellH = 44;
+    const totalW = Math.min(memberRoles.length, cols) * cellW;
+    const startX = canvas.width * 0.5 - totalW * 0.5;
+    const startY = 178;
 
-  if (Array.isArray(st.movingPlatforms)) {
-    for (const mp of st.movingPlatforms) {
-      ctx.fillStyle = "#38bdf8";
-      ctx.fillRect(mp.x, mp.y, mp.w, mp.h);
-      ctx.strokeStyle = "#e0f2fe";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(mp.x, mp.y, mp.w, mp.h);
-      ctx.fillStyle = "#0f172a";
-      ctx.fillRect(mp.x + 8, mp.y + 5, mp.w - 16, 4);
-    }
-  }
+    memberRoles.forEach((r, idx) => {
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const bx = startX + col * cellW + 6;
+      const by = startY + row * cellH;
+      if (by + cellH > canvas.height - 44) return;
 
-  if (Array.isArray(st.disappearingPlatforms)) {
-    for (const dp of st.disappearingPlatforms) {
-      if (dp.visible !== false) {
-        ctx.fillStyle = "rgba(192, 132, 252, 0.85)";
-        ctx.fillRect(dp.x, dp.y, dp.w, dp.h);
-        ctx.strokeStyle = "#f3e8ff";
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
-      } else {
-        ctx.setLineDash([4, 5]);
-        ctx.strokeStyle = "rgba(192, 132, 252, 0.35)";
-        ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
-        ctx.setLineDash([]);
-      }
-    }
-  }
+      const isSelf = r === myRole;
+      const pName = isSelf ? (myName || `Player${r}`) : (players[r] && players[r].name ? players[r].name : `Player${r}`);
+      const pColor = isSelf ? myColor : (players[r] && players[r].color ? players[r].color : sanitizeColorHex(PLAYER_COLORS[(r % 4) + 1], (r % 4) + 1));
 
-  if (Array.isArray(st.springs)) {
-    for (const sp of st.springs) {
-      ctx.fillStyle = "#facc15";
-      ctx.fillRect(sp.x, sp.y, sp.w, sp.h);
-      ctx.strokeStyle = "#fef08a";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(sp.x, sp.y, sp.w, sp.h);
-      ctx.font = "bold 10px sans-serif";
-      ctx.fillStyle = "#0f172a";
-      ctx.textAlign = "center";
-      ctx.fillText("▲▲", sp.x + sp.w * 0.5, sp.y + sp.h - 4);
-      ctx.textAlign = "left";
-    }
-  }
+      ctx.fillStyle = isSelf ? "#0f2942" : "#0f172a";
+      ctx.fillRect(bx, by, cellW - 12, cellH - 8);
+      ctx.strokeStyle = isSelf ? "#fbbf24" : "#334155";
+      ctx.lineWidth = isSelf ? 2 : 1;
+      ctx.strokeRect(bx, by, cellW - 12, cellH - 8);
 
-  if (Array.isArray(st.warps)) {
-    for (const wp of st.warps) {
-      ctx.save();
-      ctx.strokeStyle = wp.color || "#38bdf8";
-      ctx.fillStyle = "rgba(56, 189, 248, 0.16)";
-      ctx.lineWidth = 2.5;
+      ctx.fillStyle = pColor;
       ctx.beginPath();
-      ctx.ellipse(wp.x + wp.w * 0.5, wp.y + wp.h * 0.5, wp.w * 0.5, wp.h * 0.5, 0, 0, Math.PI * 2);
+      ctx.arc(bx + 16, by + (cellH - 8) * 0.5, 6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.stroke();
-      ctx.font = "bold 10px sans-serif";
-      ctx.fillStyle = "#f8fafc";
-      ctx.textAlign = "center";
-      ctx.fillText("渦", wp.x + wp.w * 0.5, wp.y + wp.h * 0.5 + 4);
+
+      ctx.fillStyle = isSelf ? "#fde047" : "#f8fafc";
+      ctx.font = isSelf ? "bold 13px sans-serif" : "13px sans-serif";
       ctx.textAlign = "left";
-      ctx.restore();
-    }
+      ctx.fillText(pName, bx + 28, by + (cellH - 8) * 0.5 + 4);
+    });
   }
 
+  ctx.restore();
+}
+
+function draw() {
+  const now = performance.now();
   if (isPublicLobbyRoom()) {
-    drawPublicLobbyCenterGuide();
-    requestAnimationFrame(loop);
+    drawPublicLobbyScene(now);
     return;
   }
 
-  if (!entryBlockedByHost && !isRoomFullBlocked) {
-    for (const r of getParticipantRoles()) {
-      const p = players[r];
-      if (!p || !p.active || p.stocks <= 0) continue;
-      if (p.charKey === "hammer") {
-        ensureHammerCritState(p, now);
-      }
-      const pColor = getColorOfRole(r);
-      const pName = getDisplayNameOfRole(r);
+  const st = getCurrentStage();
+  initStageGimmicks(st, false);
+  ctx.fillStyle = st.bgColor || "#273244";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  for (const solid of (st.solids || [])) {
+    ctx.fillStyle = st.groundColor || "#94a3b8";
+    ctx.fillRect(solid.x, solid.y, solid.w, solid.h);
+    ctx.fillStyle = st.groundBorder || "#cbd5e1";
+    ctx.fillRect(solid.x, solid.y, solid.w, 6);
+  }
+  for (const plat of (st.platforms || [])) {
+    ctx.fillStyle = st.platColor || "#64748b";
+    ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillRect(plat.x, plat.y, plat.w, 3);
+  }
+
+  for (const mp of (st.movingPlatforms || [])) {
+    ctx.fillStyle = "#0ea5e9";
+    ctx.fillRect(mp.x, mp.y, mp.w, mp.h);
+    ctx.fillStyle = "#bae6fd";
+    ctx.fillRect(mp.x, mp.y, mp.w, 3);
+  }
+
+  for (const sp of (st.springs || [])) {
+    ctx.fillStyle = "#22c55e";
+    ctx.fillRect(sp.x, sp.y, sp.w, sp.h);
+    ctx.fillStyle = "#bbf7d0";
+    ctx.fillRect(sp.x + 4, sp.y, sp.w - 8, 4);
+    ctx.font = "bold 10px sans-serif";
+    ctx.fillStyle = "#dcfce7";
+    ctx.textAlign = "center";
+    ctx.fillText("▲", sp.x + sp.w * 0.5, sp.y - 3);
+    ctx.textAlign = "left";
+  }
+
+  for (const wp of (st.warps || [])) {
+    ctx.save();
+    ctx.strokeStyle = wp.color || "#c084fc";
+    ctx.fillStyle = "rgba(168, 85, 247, 0.22)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(wp.x + wp.w * 0.5, wp.y + wp.h * 0.5, wp.w * 0.45, wp.h * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  for (const hz of (st.hazardZones || [])) {
+    ctx.fillStyle = "rgba(239, 68, 68, 0.78)";
+    ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
+    ctx.fillStyle = "#fde047";
+    ctx.fillRect(hz.x, hz.y, hz.w, 2);
+  }
+
+  for (const ice of (st.iceFloors || [])) {
+    ctx.fillStyle = "rgba(186, 230, 253, 0.55)";
+    ctx.fillRect(ice.x, ice.y, ice.w, ice.h);
+  }
+
+  for (const dp of (st.disappearingPlatforms || [])) {
+    if (dp.visible !== false) {
+      ctx.fillStyle = "#c084fc";
+      ctx.fillRect(dp.x, dp.y, dp.w, dp.h);
+      ctx.fillStyle = "#f3e8ff";
+      ctx.fillRect(dp.x, dp.y, dp.w, 3);
+    } else {
       ctx.save();
-      if ((p.invincibleTimer || 0) > 0) ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now * 0.035);
-
-      ctx.fillStyle = pColor;
-      ctx.fillRect(p.x, p.y, p.w, p.h);
-
-      if (gameMode === "team2v2" && !isPracticeMode) {
-        const team = getTeamOfRole(r);
-        ctx.strokeStyle = team === "A" ? "#38bdf8" : "#f43f5e";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
-      }
-
-      if (p.frozen) {
-        ctx.fillStyle = "rgba(125, 211, 252, 0.55)";
-        ctx.fillRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
-        ctx.strokeStyle = "#e0f2fe";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(p.x - 2, p.y - 2, p.w + 4, p.h + 4);
-      }
-
-      ctx.fillStyle = "#0f172a";
-      const eyeX = p.facing === 1 ? p.x + p.w - 11 : p.x + 5;
-      ctx.fillRect(eyeX, p.y + 10, 6, 6);
-
-      if (p.shielding && !p.burnedOut) {
-        const radius = Math.max(10, 34 * (p.shieldHp / MAX_SHIELD));
-        ctx.beginPath();
-        ctx.arc(p.x + p.w / 2, p.y + p.h / 2, radius, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(125, 211, 252, 0.28)";
-        ctx.fill();
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = "#e0f2fe";
-        ctx.stroke();
-      }
-
-      const hb = getMeleeHitbox(p, now);
-      if (hb) {
-        const isHammerCritAtk = p.charKey === "hammer" && hb.isSmash && isHammerCritState(p, now);
-        ctx.fillStyle = isHammerCritAtk ? "rgba(250, 204, 21, 0.62)" : (hb.isSmash ? "rgba(251, 191, 36, 0.45)" : "rgba(255, 255, 255, 0.35)");
-        ctx.fillRect(hb.x, hb.y, hb.w, hb.h);
-        ctx.strokeStyle = isHammerCritAtk ? "#fef08a" : (hb.isSmash ? "#fbbf24" : "#ffffff");
-        ctx.lineWidth = isHammerCritAtk ? 3 : 2;
-        ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
-      }
-
-      ctx.font = "bold 12px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#ffffff";
-      const teamPrefix = (gameMode === "team2v2" && !isPracticeMode) ? `[${getTeamOfRole(r)}]` : "";
-      const botPrefix = (isPracticeMode && r === 2) ? "[CPU]" : "";
-      ctx.fillText(`${teamPrefix}${botPrefix}${pName}`, p.x + p.w / 2, p.y - 8);
-      ctx.textAlign = "left";
-      ctx.restore();
-    }
-
-    for (const ownerStr of Object.keys(clones)) {
-      const ownerRole = Number(ownerStr);
-      if (isRoleSpectating(ownerRole)) continue;
-      const cl = clones[ownerRole];
-      if (!cl || !cl.active) continue;
-      if (cl.charKey === "hammer") {
-        ensureHammerCritState(cl, now);
-      }
-      const ownerColor = getColorOfRole(ownerRole);
-      ctx.save();
-      ctx.globalAlpha = 0.72;
-      ctx.fillStyle = ownerColor;
-      ctx.fillRect(cl.x, cl.y, cl.w, cl.h);
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cl.x, cl.y, cl.w, cl.h);
-      ctx.setLineDash([]);
-      if (cl.atkTimer > 0) {
-        const chb = { x: cl.facing === 1 ? cl.x + cl.w - 2 : cl.x - 36, y: cl.y + 9, w: 38, h: 24 };
-        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-        ctx.fillRect(chb.x, chb.y, chb.w, chb.h);
-      }
-      ctx.font = "bold 11px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#f8fafc";
-      ctx.fillText(`${getDisplayNameOfRole(ownerRole)}分身`, cl.x + cl.w / 2, cl.y - 6);
-      ctx.textAlign = "left";
-      ctx.restore();
-    }
-
-    for (const pr of projectiles) {
-      ctx.fillStyle = pr.color || "#38bdf8";
-      ctx.beginPath();
-      ctx.arc(pr.x + 7, pr.y + 7, 7, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    for (const bm of beams) {
-      if (isRoleSpectating(bm.ownerRole)) continue;
-      const alpha = Math.max(0.15, bm.life / bm.maxLife);
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      if (bm.mode === "mage_laser") {
-        const clipped = getClippedBeamRect(bm);
-        ctx.fillStyle = "rgba(192, 132, 252, 0.85)";
-        ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
-        ctx.fillStyle = "#f5d0fe";
-        ctx.fillRect(clipped.x, clipped.y + 3, clipped.w, Math.max(2, clipped.h - 6));
-      } else if (bm.mode === "heal") {
-        ctx.fillStyle = MAGIC_INFO.heal.beamColor;
-        ctx.fillRect(bm.x, bm.y, bm.w, bm.h);
-      } else {
-        const clipped = getClippedBeamRect(bm);
-        const info = MAGIC_INFO[bm.mode] || MAGIC_INFO.fire;
-        ctx.fillStyle = info.beamColor;
-        ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
-      }
-      ctx.restore();
-    }
-
-    for (const rg of ringEffects) {
-      if (isRoleSpectating(rg.ownerRole)) continue;
-      const progress = 1 - Math.max(0, rg.life / rg.maxLife);
-      const curRadius = rg.maxRadius * Math.min(1, progress * 1.35);
-      const alpha = Math.max(0.1, rg.life / rg.maxLife);
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(rg.cx, rg.cy, Math.max(6, curRadius), 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(253, 224, 71, 0.22)";
-      ctx.fill();
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = "#fde047";
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    drawTrapsAndEffects(now);
-
-    const hudRoles = isPracticeMode ? [1, 2] : activeRoles;
-    const hudCount = Math.max(1, hudRoles.length);
-    const slotW = Math.min(250, Math.floor((canvas.width - 40) / hudCount));
-    const totalHudW = slotW * hudCount;
-    const startX = Math.floor((canvas.width - totalHudW) / 2);
-
-    hudRoles.forEach((r, idx) => {
-      const p = players[r];
-      if (!p) return;
-      const x = startX + idx * slotW + 8;
-      const y = canvas.height - 84;
-      const pColor = getColorOfRole(r);
-      const pName = getDisplayNameOfRole(r);
-      const specHud = isRoleSpectating(r);
-      const teamTag = (gameMode === "team2v2" && !isPracticeMode) ? `[${getTeamOfRole(r)}]` : "";
-      const botTag = (isPracticeMode && r === 2) ? "[CPU]" : "";
-
-      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
-      ctx.fillRect(x - 6, y - 16, slotW - 14, 74);
-
-      ctx.font = "bold 12px sans-serif";
-      ctx.fillStyle = pColor;
-      ctx.fillText(`${teamTag}${botTag}${pName} (${CHAR_SPECS[p.charKey].shortName})${specHud ? " [観戦]" : ""}`, x, y);
-
-      if (!specHud) {
-        renderStocks(p.stocks, x + 6, y + 14, pColor);
-        ctx.font = "bold 20px sans-serif";
-        ctx.fillStyle = p.percent >= 100 ? "#ef4444" : (p.percent >= 50 ? "#fbbf24" : "#f8fafc");
-        ctx.fillText(`${Math.floor(p.percent)}%`, x, y + 40);
-
-        if (p.charKey === "enhancer") {
-          const remSec = Math.max(0, ((p.enhanceCooldownUntil || 0) - now) / 1000);
-          const cdText = (p.enhanceLevel || 0) >= ENHANCE_MAX_LEVEL ? "MAX" : (remSec > 0 ? `CT:${remSec.toFixed(1)}s` : "K可");
-          ctx.font = "bold 11px sans-serif";
-          ctx.fillStyle = "#34d399";
-          ctx.fillText(`強化Lv.${p.enhanceLevel || 0}/${ENHANCE_MAX_LEVEL}(${cdText})`, x + 78, y + 38);
-        } else if (p.charKey === "hammer") {
-          ensureHammerCritState(p, now);
-          const inCrit = isHammerCritState(p, now);
-          const absMode = isHammerAbsoluteCritMode(p, now);
-          const remSec = getHammerRemainingAbsSec(p, now);
-          const resetHitsLeft = Math.max(0, HAMMER_EXPIRED_LIGHT_RESET_COUNT - (p.critLightHitsAfterExpiry || 0));
-          ctx.font = "bold 11px sans-serif";
-          if (inCrit && absMode) {
-            ctx.fillStyle = "#facc15";
-            ctx.fillText(`会心発動中(絶対${remSec.toFixed(1)}s)`, x + 74, y + 38);
-          } else if (inCrit && !absMode) {
-            ctx.fillStyle = "#fb923c";
-            ctx.fillText(`会心継続(L残${resetHitsLeft}/スマ消滅)`, x + 74, y + 38);
-          } else {
-            ctx.fillStyle = "#fb923c";
-            ctx.fillText(`会心:${p.hammerCharge || 0}/${HAMMER_CRIT_THRESHOLD}`, x + 78, y + 38);
-          }
-        } else if (p.charKey === "summoner") {
-          const remSec = Math.max(0, ((p.summonCooldownUntil || 0) - now) / 1000);
-          const cloneAlive = !!(clones[r] && clones[r].active);
-          ctx.font = "bold 11px sans-serif";
-          ctx.fillStyle = "#2dd4bf";
-          ctx.fillText(cloneAlive ? "分身:出現中" : (remSec > 0 ? `召喚CT:${remSec.toFixed(1)}s` : "召喚:K可"), x + 78, y + 38);
-        } else if (p.charKey === "elementalist") {
-          const mInfo = MAGIC_INFO[p.magicMode] || MAGIC_INFO.fire;
-          ctx.font = "bold 11px sans-serif";
-          ctx.fillStyle = mInfo.color;
-          ctx.fillText(`MP:${Math.floor(p.mp ?? MAX_MP)} [${mInfo.label}]`, x + 78, y + 38);
-        } else if (p.charKey === "trapper") {
-          const tInfo = TRAP_INFO[p.trapMode] || TRAP_INFO.explosion;
-          const remSec = Math.max(0, ((p.trapCooldownUntil || 0) - now) / 1000);
-          const activeCount = traps.filter(t => t.ownerRole === r).length;
-          ctx.font = "bold 11px sans-serif";
-          ctx.fillStyle = tInfo.color;
-          ctx.fillText(`[${tInfo.label}] 罠${activeCount}/${MAX_TRAPS_PER_OWNER}${remSec > 0 ? `(${remSec.toFixed(1)}s)` : ""}`, x + 76, y + 38);
-        }
-      }
-    });
-
-    if (isSpectator && phase === "playing") {
-      ctx.save();
-      ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
-      ctx.fillRect(canvas.width / 2 - 190, 14, 380, 32);
-      ctx.font = "bold 14px sans-serif";
-      ctx.fillStyle = "#38bdf8";
-      ctx.textAlign = "center";
-      ctx.fillText("👀 観戦モード中（次の試合から参加できます）", canvas.width / 2, 35);
-      ctx.restore();
-    }
-
-    if (isPracticeMode && phase === "playing" && isPracticeStopped) {
-      ctx.save();
-      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
-      ctx.fillRect(canvas.width / 2 - 175, canvas.height / 2 - 28, 350, 56);
-      ctx.strokeStyle = "#fbbf24";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(canvas.width / 2 - 175, canvas.height / 2 - 28, 350, 56);
-      ctx.font = "bold 20px sans-serif";
-      ctx.fillStyle = "#fbbf24";
-      ctx.textAlign = "center";
-      ctx.fillText("⏸ 練習場ストップ中", canvas.width / 2, canvas.height / 2 + 7);
-      ctx.restore();
-    }
-
-    if (phase === "countdown") {
-      ctx.save();
-      ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
-      ctx.fillRect(canvas.width / 2 - 210, canvas.height / 2 - 44, 420, 88);
-      ctx.font = "bold 28px sans-serif";
-      ctx.fillStyle = "#fbbf24";
-      ctx.textAlign = "center";
-      ctx.fillText(`試合開始まで ${countdownLeft} 秒`, canvas.width / 2, canvas.height / 2 - 4);
-      ctx.font = "bold 14px sans-serif";
-      ctx.fillStyle = "#e2e8f0";
-      ctx.fillText(`マップ：${getCurrentStage().name}`, canvas.width / 2, canvas.height / 2 + 24);
-      ctx.restore();
-    }
-
-    if (phase === "gameover" && winnerInfo) {
-      ctx.save();
-      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
-      ctx.fillRect(canvas.width / 2 - 230, canvas.height / 2 - 48, 460, 96);
-      ctx.font = "bold 30px sans-serif";
-      ctx.fillStyle = "#fbbf24";
-      ctx.textAlign = "center";
-      const winText = winnerInfo.type === "team"
-        ? `${winnerInfo.winnerTeam === "A" ? "Aチーム（1P・2P）" : "Bチーム（3P・4P）"} WIN!`
-        : `${getDisplayNameOfRole(winnerInfo.winnerRole)} WIN!`;
-      ctx.fillText(winText, canvas.width / 2, canvas.height / 2 - 6);
-      ctx.font = "bold 14px sans-serif";
-      ctx.fillStyle = "#e2e8f0";
-      ctx.fillText(`${resultSecLeft}秒後にマップ選択へ戻ります...`, canvas.width / 2, canvas.height / 2 + 26);
+      ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = "rgba(192, 132, 252, 0.35)";
+      ctx.strokeRect(dp.x, dp.y, dp.w, dp.h);
       ctx.restore();
     }
   }
 
+  drawTrapsAndEffects(now);
+
+  if (entryBlockedByHost) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.72)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#fbbf24"; ctx.font = "bold 24px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("ホスト（1P）が部屋に入ると開始・参加できます", canvas.width / 2, canvas.height / 2 - 12);
+    ctx.fillStyle = "#e2e8f0"; ctx.font = "15px sans-serif";
+    ctx.fillText("ホスト入室まで待機中です...", canvas.width / 2, canvas.height / 2 + 22);
+    ctx.textAlign = "left";
+    return;
+  }
+
+  if (isRoomFullBlocked) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.78)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#f87171"; ctx.font = "bold 24px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(`合言葉「${currentPassphrase}」は満員（${MAX_BATTLE_PLAYERS}/${MAX_BATTLE_PLAYERS}人）です`, canvas.width / 2, canvas.height / 2 - 10);
+    ctx.fillStyle = "#e2e8f0"; ctx.font = "15px sans-serif";
+    ctx.fillText("別の合言葉を入力するか、公開待機部屋へ戻ってください。", canvas.width / 2, canvas.height / 2 + 24);
+    ctx.textAlign = "left";
+    return;
+  }
+
+  for (const ownerStr of Object.keys(clones)) {
+    const ownerRole = Number(ownerStr);
+    const cl = clones[ownerRole];
+    if (!cl || !cl.active) continue;
+    const ownerColor = getColorOfRole(ownerRole);
+    drawPlayerFigure(cl, `${getDisplayNameOfRole(ownerRole)}の分身(${Math.floor(cl.percent)}%)`, false, now, ownerColor, true);
+  }
+
+  for (const r of activeRoles) {
+    if (isRoleSpectating(r)) continue;
+    const p = players[r];
+    if (!p || !p.active || p.stocks <= 0) continue;
+    drawPlayerFigure(p, getDisplayNameOfRole(r), r === myRole, now, getColorOfRole(r), false);
+  }
+
+  for (const pr of projectiles) {
+    ctx.fillStyle = pr.color || "#fbbf24";
+    ctx.fillRect(pr.x, pr.y, pr.w, pr.h);
+  }
+
+  for (const bm of beams) {
+    const clipped = bm.mode === "heal" ? bm : getClippedBeamRect(bm);
+    if (bm.mode === "ult_beam") {
+      ctx.fillStyle = "rgba(250, 204, 21, 0.78)";
+      ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(clipped.x, clipped.y, clipped.w, clipped.h);
+    } else {
+      ctx.fillStyle = bm.mode === "mage_laser" ? "rgba(192, 132, 252, 0.85)" : MAGIC_INFO[bm.mode].beamColor;
+      ctx.fillRect(clipped.x, clipped.y, clipped.w, clipped.h);
+    }
+  }
+  drawUltEffects();
+
+  for (const rg of ringEffects) {
+    const ratio = 1 - Math.max(0, rg.life / rg.maxLife);
+    const curRadius = rg.maxRadius * Math.min(1, ratio * 1.35);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(rg.cx, rg.cy, Math.max(4, curRadius), 0, Math.PI * 2);
+    ctx.lineWidth = 6; ctx.strokeStyle = `rgba(253, 224, 71, ${Math.max(0.15, rg.life / rg.maxLife)})`;
+    ctx.stroke();
+    ctx.fillStyle = `rgba(250, 204, 21, ${0.18 * Math.max(0.15, rg.life / rg.maxLife)})`;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const hudRoles = isPracticeMode ? [1, 2] : activeRoles;
+  const cardWidth = 210;
+  const gap = 14;
+  const totalHudW = hudRoles.length * cardWidth + Math.max(0, hudRoles.length - 1) * gap;
+  const startHudX = (canvas.width - totalHudW) / 2;
+  const hudY = canvas.height - 96;
+
+  hudRoles.forEach((r, idx) => {
+    const p = players[r];
+    if (!p) return;
+    const xPos = startHudX + idx * (cardWidth + gap);
+    const pColor = getColorOfRole(r);
+    const pName = getDisplayNameOfRole(r);
+    const specBadge = isRoleSpectating(r) ? " [観戦]" : "";
+    const teamBadge = (!isPracticeMode && gameMode === "team2v2" && !isRoleSpectating(r)) ? (getTeamOfRole(r) === "A" ? "[A]" : "[B]") : "";
+    const readyBadge = (!isPracticeMode && !isRoleSpectating(r) && (phase === "char_select" || phase === "countdown"))
+      ? (readyRoles.has(r) ? " ✓完了" : " 選択中")
+      : "";
+
+    ctx.fillStyle = "rgba(15, 23, 42, 0.86)";
+    ctx.fillRect(xPos, hudY, cardWidth, 82);
+    ctx.strokeStyle = r === myRole ? "#fde047" : pColor;
+    ctx.lineWidth = r === myRole ? 2.5 : 1.5;
+    ctx.strokeRect(xPos, hudY, cardWidth, 82);
+
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillStyle = pColor;
+    ctx.fillText(`${pName}${teamBadge}${specBadge}${readyBadge}`, xPos + 10, hudY + 17);
+
+    if (isRoleSpectating(r)) {
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = "#94a3b8";
+      ctx.fillText("次の試合から参加待機中", xPos + 10, hudY + 42);
+      return;
+    }
+
+    ctx.font = "bold 19px sans-serif";
+    ctx.fillStyle = p.percent >= 100 ? "#ef4444" : "#f8fafc";
+    ctx.fillText(`${Math.floor(p.percent)}%`, xPos + 10, hudY + 41);
+
+    ctx.font = "13px sans-serif";
+    ctx.fillStyle = "#fbbf24";
+    ctx.fillText(`残機:${"●".repeat(Math.max(0, p.stocks))}`, xPos + 82, hudY + 40);
+
+    let subText = CHAR_SPECS[p.charKey].shortName;
+    if (p.charKey === "enhancer") subText = `強化Lv.${p.enhanceLevel || 0}/${ENHANCE_MAX_LEVEL}`;
+    else if (p.charKey === "elementalist") {
+      const mInfo = MAGIC_INFO[p.magicMode || "fire"];
+      subText = `${mInfo.label}(MP${Math.floor(p.mp || 0)})`;
+    } else if (p.charKey === "hammer") {
+      if (isHammerCritState(p, now)) {
+        const remAbs = getHammerRemainingAbsSec(p, now);
+        subText = remAbs > 0 ? `会心!絶対${remAbs.toFixed(1)}s` : "会心!貫通+40";
+      } else {
+        subText = `会心${Math.min(HAMMER_CRIT_THRESHOLD, p.hammerCharge || 0)}/${HAMMER_CRIT_THRESHOLD}`;
+      }
+    } else if (p.charKey === "guardian") subText = (p.invincibleTimer || 0) > 0 ? `無敵${Math.ceil(p.invincibleTimer / 60)}s` : `L連撃${p.guardianHits || 0}/${GUARDIAN_INVINCIBLE_HITS}`;
+    else if (p.charKey === "summoner") {
+      const remCd = Math.max(0, Math.ceil(((p.summonCooldownUntil || 0) - now) / 1000));
+      subText = p.hasClone ? "分身出撃中" : (remCd > 0 ? `召喚CT ${remCd}s` : "召喚可[K]");
+    } else if (p.charKey === "trapper") {
+      const tInfo = TRAP_INFO[p.trapMode || "explosion"];
+      const activeCnt = traps.filter(t => t.ownerRole === p.role).length;
+      subText = `${tInfo.label} 罠${activeCnt}/${MAX_TRAPS_PER_OWNER}`;
+    }
+
+    ctx.font = "11px sans-serif";
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText(subText, xPos + 10, hudY + 57);
+
+    const ultVal = Math.min(ULTIMATE_MAX_GAUGE, Math.floor(p.ultGauge || 0));
+    const ultReady = ultVal >= ULTIMATE_MAX_GAUGE;
+    ctx.font = "bold 10px sans-serif";
+    ctx.fillStyle = ultReady ? "#fde047" : "#cbd5e1";
+    ctx.textAlign = "right";
+    ctx.fillText(ultReady ? "必殺[U]発動可!" : `必殺 ${ultVal}/1000`, xPos + cardWidth - 10, hudY + 57);
+    ctx.textAlign = "left";
+
+    const barW = cardWidth - 20;
+    ctx.fillStyle = "#334155";
+    ctx.fillRect(xPos + 10, hudY + 65, barW, 4);
+    ctx.fillStyle = p.burnedOut ? "#ef4444" : "#38bdf8";
+    ctx.fillRect(xPos + 10, hudY + 65, barW * Math.max(0, p.shieldHp / MAX_SHIELD), 4);
+
+    ctx.fillStyle = "#1e293b";
+    ctx.fillRect(xPos + 10, hudY + 71, barW, 5);
+    ctx.fillStyle = ultReady ? "#facc15" : "#a855f7";
+    ctx.fillRect(xPos + 10, hudY + 71, barW * (ultVal / ULTIMATE_MAX_GAUGE), 5);
+  });
+
+  if (phase === "countdown") {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.52)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#fde047"; ctx.font = "bold 64px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(`${countdownLeft}`, canvas.width / 2, canvas.height / 2 - 10);
+    ctx.fillStyle = "#f8fafc"; ctx.font = "bold 20px sans-serif";
+    ctx.fillText("まもなく試合開始！", canvas.width / 2, canvas.height / 2 + 36);
+    ctx.textAlign = "left";
+  }
+
+  if (isPracticeMode && phase === "playing" && isPracticeStopped) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.45)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#fbbf24";
+    ctx.font = "bold 36px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("⏸ 練習場ストップ中", canvas.width / 2, canvas.height / 2 - 10);
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "16px sans-serif";
+    ctx.fillText("「▶ スタート」で再開、「🔄 リセット」でマップ選択へ戻ります", canvas.width / 2, canvas.height / 2 + 28);
+    ctx.textAlign = "left";
+  }
+
+  if (phase === "gameover" && winnerInfo) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.72)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const title = winnerInfo.type === "team"
+      ? `${winnerInfo.winnerTeam === "A" ? "Aチーム（1P・2P）" : "Bチーム（3P・4P）"} WIN!`
+      : `${getDisplayNameOfRole(winnerInfo.winnerRole)} WIN!`;
+    ctx.fillStyle = "#fde047"; ctx.font = "bold 46px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(title, canvas.width / 2, canvas.height / 2 - 16);
+    ctx.fillStyle = "#f8fafc"; ctx.font = "18px sans-serif";
+    ctx.fillText(`${resultSecLeft}秒後にマップ選択へ戻ります...`, canvas.width / 2, canvas.height / 2 + 28);
+    ctx.textAlign = "left";
+  }
+}
+
+function loop(now) {
+  const rawDt = (now - lastFrameTime) / (1000 / 60);
+  lastFrameTime = now;
+  const dtScale = Math.max(0.25, Math.min(2.5, rawDt || 1));
+  update(dtScale);
+  draw();
   requestAnimationFrame(loop);
 }
 
 initDropdownOptions();
 initColorPaletteDOM();
+renderChatLogDOM();
 updatePassphraseUI();
 updateLoopUI();
 updateRoomStatusBox();
 updateStatusByPhase();
-renderChatLogDOM();
 requestAnimationFrame(loop);
+
+if (myName) {
+  hasEnteredLobby = true;
+  nameGateOverlay.classList.add("hidden");
+  connectToPassphrase(currentPassphrase, false);
+} else {
+  hasEnteredLobby = false;
+  nameGateOverlay.classList.remove("hidden");
+  updateChatVisibility();
+  statusEl.textContent = "名前を入力してロビーへ入ってください";
+  setTimeout(() => gateNameInput.focus(), 50);
+}
 </script>
 </body>
 </html>
